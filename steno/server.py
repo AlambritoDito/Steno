@@ -2,16 +2,18 @@
 
 import asyncio
 import json
+import tempfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from steno.audio import AudioCapture, AudioCaptureError
-from steno.config import Config
+from steno.config import Config, WHISPER_MODELS, SUPPORTED_AUDIO_EXTENSIONS, _detect_hardware, recommend_model
 from steno.i18n import load_locale, get_supported_languages
 from steno.session import Session, list_sessions
 from steno.transcriber import Transcriber
@@ -23,8 +25,11 @@ _audio_capture = AudioCapture()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Initialize the transcriber (lazy-load, no model loaded yet)."""
-    app.state.transcriber = Transcriber()
+    """Initialize the transcriber with saved model preference."""
+    settings = Config.load_settings()
+    model_name = settings.get("model_repo", Config.MODEL_NAME)
+    app.state.transcriber = Transcriber(model_name=model_name)
+    app.state.setup_complete = settings.get("setup_complete", False)
     yield
 
 
@@ -52,6 +57,7 @@ async def get_status():
         "model_info": transcriber.get_model_info(),
         "active_sessions": active_sessions,
         "recording": _audio_capture.is_recording(),
+        "setup_complete": app.state.setup_complete,
     }
 
 
@@ -59,6 +65,179 @@ async def get_status():
 async def get_devices():
     """List available microphones."""
     return AudioCapture.list_devices()
+
+
+@app.get("/api/hardware")
+async def get_hardware():
+    """Detect hardware and return model recommendations."""
+    hw = await asyncio.to_thread(_detect_hardware)
+    recommended = recommend_model(hw["ram_gb"])
+
+    models = []
+    for key, info in WHISPER_MODELS.items():
+        models.append({
+            "key": key,
+            "repo": info["repo"],
+            "size_mb": info["size_mb"],
+            "quality": info["quality"],
+            "speed": info["speed"],
+            "recommended": key == recommended,
+            "compatible": hw["ram_gb"] >= info["min_ram_gb"],
+        })
+
+    return {
+        "chip": hw["chip"],
+        "ram_gb": hw["ram_gb"],
+        "recommended_model": recommended,
+        "models": models,
+    }
+
+
+@app.post("/api/setup/select-model")
+async def select_model(body: dict):
+    """Select and download a model. Streams progress via the response."""
+    model_key = body.get("model_key")
+    if model_key not in WHISPER_MODELS:
+        raise HTTPException(status_code=422, detail="Invalid model key")
+
+    model_info = WHISPER_MODELS[model_key]
+    model_repo = model_info["repo"]
+
+    # Update transcriber with selected model
+    transcriber: Transcriber = app.state.transcriber
+    transcriber.set_model(model_repo)
+
+    # Download/cache the model (blocking in thread)
+    await asyncio.to_thread(transcriber.download_model)
+
+    # Save settings and track as downloaded
+    settings = Config.load_settings()
+    settings["model_key"] = model_key
+    settings["model_repo"] = model_repo
+    settings["setup_complete"] = True
+    downloaded = settings.get("downloaded_models", [])
+    if model_key not in downloaded:
+        downloaded.append(model_key)
+        settings["downloaded_models"] = downloaded
+    Config.save_settings(settings)
+    app.state.setup_complete = True
+
+    return {
+        "status": "ok",
+        "model_key": model_key,
+        "model_repo": model_repo,
+    }
+
+
+@app.get("/api/models")
+async def get_models():
+    """List all models with download status."""
+    settings = Config.load_settings()
+    downloaded = settings.get("downloaded_models", [])
+    active_repo = app.state.transcriber._model_name
+
+    models = []
+    for key, info in WHISPER_MODELS.items():
+        models.append({
+            "key": key,
+            "repo": info["repo"],
+            "size_mb": info["size_mb"],
+            "quality": info["quality"],
+            "speed": info["speed"],
+            "downloaded": key in downloaded,
+            "active": info["repo"] == active_repo,
+        })
+
+    return {"models": models, "active_repo": active_repo}
+
+
+@app.post("/api/models/download")
+async def download_model(body: dict):
+    """Download a model without setting it as active."""
+    model_key = body.get("model_key")
+    if model_key not in WHISPER_MODELS:
+        raise HTTPException(status_code=422, detail="Invalid model key")
+
+    model_info = WHISPER_MODELS[model_key]
+    repo = model_info["repo"]
+
+    await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+
+    # Track downloaded models
+    settings = Config.load_settings()
+    downloaded = settings.get("downloaded_models", [])
+    if model_key not in downloaded:
+        downloaded.append(model_key)
+        settings["downloaded_models"] = downloaded
+        Config.save_settings(settings)
+
+    return {"status": "ok", "model_key": model_key}
+
+
+@app.post("/api/models/active")
+async def set_active_model(body: dict):
+    """Switch the active transcription model."""
+    model_key = body.get("model_key")
+    if model_key not in WHISPER_MODELS:
+        raise HTTPException(status_code=422, detail="Invalid model key")
+
+    model_info = WHISPER_MODELS[model_key]
+    repo = model_info["repo"]
+
+    transcriber: Transcriber = app.state.transcriber
+    transcriber.set_model(repo)
+
+    # Save preference
+    settings = Config.load_settings()
+    settings["model_key"] = model_key
+    settings["model_repo"] = repo
+    Config.save_settings(settings)
+
+    return {"status": "ok", "model_key": model_key, "model_repo": repo}
+
+
+@app.post("/api/sessions/{session_id}/transcribe-file")
+async def transcribe_file(session_id: str, file: UploadFile = File(...)):
+    """Upload an audio file and transcribe it into the session."""
+    session = _sessions.get(session_id)
+    if session is None:
+        try:
+            session = Session.load(session_id)
+            _sessions[session_id] = session
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    # Validate file extension
+    filename = file.filename or "audio.wav"
+    ext = Path(filename).suffix.lower()
+    if ext not in SUPPORTED_AUDIO_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported format. Supported: {', '.join(sorted(SUPPORTED_AUDIO_EXTENSIONS))}",
+        )
+
+    # Write to temp file for mlx-whisper (it needs a file path)
+    audio_data = await file.read()
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(audio_data)
+        tmp_path = tmp.name
+
+    try:
+        transcriber: Transcriber = app.state.transcriber
+        segments = await asyncio.to_thread(transcriber.transcribe_file, tmp_path)
+
+        # Add each segment to the session
+        for seg in segments:
+            if seg["text"]:
+                minutes = int(seg["start"]) // 60
+                seconds = int(seg["start"]) % 60
+                ts = datetime.now().replace(minute=minutes % 60, second=seconds)
+                session.add_transcript(seg["text"], ts)
+
+        session.save()
+        return {"status": "ok", "segments": segments, "count": len(segments)}
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 @app.get("/api/sessions")

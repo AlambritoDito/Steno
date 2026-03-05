@@ -24,6 +24,13 @@ class Transcriber:
         self._loaded = False
         self._status_callback = status_callback
 
+    def set_model(self, model_name: str) -> None:
+        """Change the model (resets loaded state)."""
+        if model_name != self._model_name:
+            self._model_name = model_name
+            self._loaded = False
+            self._model = None
+
     async def transcribe(self, audio_chunk: np.ndarray) -> str:
         """Transcribe an audio chunk, returning the text string.
 
@@ -67,6 +74,56 @@ class Transcriber:
         )
         text = result.get("text", "").strip()
         return text
+
+    def download_model(self) -> None:
+        """Download/cache the model without transcribing (runs in a thread)."""
+        self._load_model()
+        self._loaded = True
+
+    @staticmethod
+    def download_model_by_repo(repo: str) -> None:
+        """Download/cache any model by repo name (runs in thread)."""
+        import mlx_whisper
+        mlx_whisper.transcribe(
+            np.zeros(Config.SAMPLE_RATE, dtype=np.float32),
+            path_or_hf_repo=repo,
+        )
+
+    def transcribe_file(self, file_path: str) -> list[dict]:
+        """Transcribe an entire audio file. Returns list of segments.
+
+        Each segment: {"start": float, "end": float, "text": str}
+        Runs in a thread — call via asyncio.to_thread().
+        """
+        import mlx_whisper
+
+        if not self._loaded:
+            self._load_model()
+            self._loaded = True
+
+        result = mlx_whisper.transcribe(
+            file_path,
+            path_or_hf_repo=self._model_name,
+            language=self._language,
+        )
+
+        segments = []
+        for seg in result.get("segments", []):
+            segments.append({
+                "start": seg.get("start", 0),
+                "end": seg.get("end", 0),
+                "text": seg.get("text", "").strip(),
+            })
+
+        # Fallback: if no segments but there's top-level text
+        if not segments and result.get("text", "").strip():
+            segments.append({
+                "start": 0,
+                "end": 0,
+                "text": result["text"].strip(),
+            })
+
+        return segments
 
     def is_loaded(self) -> bool:
         """Return whether the model has been loaded."""

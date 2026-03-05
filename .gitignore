@@ -40,6 +40,15 @@ sessions/*.md
 *.mp3
 *.ogg
 *.flac
+.steno_settings.json
 
 # uv
 .python-version
+
+# Node / Electron
+node_modules/
+package-lock.json
+*.dmg
+
+# PyInstaller
+*.spec
