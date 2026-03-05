@@ -44,6 +44,9 @@ async def serve_index():
     index_path = Config.static_path() / "index.html"
     return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
 
+# NOTE: Mount after the "/" route so explicit routes take priority over the catch-all static handler.
+app.mount("/static", StaticFiles(directory=str(Config.static_path())), name="static")
+
 
 # --- API Routes ---
 

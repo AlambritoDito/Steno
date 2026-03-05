@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Steno</title>
+<link rel="icon" type="image/png" href="/static/assets/steno-icon.png">
 
 <!-- CodeMirror 6 from CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.cjs.min.js" type="module"></script>
@@ -94,6 +95,8 @@
         --sidebar-bg: rgba(28, 28, 30, 0.72);
         --sidebar-hover: rgba(255, 255, 255, 0.06);
     }
+    .logo-dark { display: none; }
+    .logo-light { display: inline; }
 }
 
 html, body {
@@ -238,16 +241,10 @@ html, body {
     color: var(--text-primary);
 }
 
-.logo {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: -0.03em;
-}
-
-.logo-dot {
-    color: var(--accent);
-}
+/* NOTE: logo-dark shown by default (light mode); logo-light shown in dark mode */
+.logo { height: 28px; }
+.logo-light { display: none; }
+.logo-dark { display: inline; }
 
 .header-center {
     flex: 1;
@@ -1291,7 +1288,9 @@ html, body {
                         <rect x="2" y="12.5" width="14" height="1.5" rx="0.75" fill="currentColor"/>
                     </svg>
                 </button>
-                <span class="logo">Steno<span class="logo-dot">.</span></span>
+                <!-- NOTE: Two logo variants for light/dark mode; CSS handles visibility via prefers-color-scheme -->
+                <img src="/static/assets/steno-logo-dark.png" alt="Steno" height="28" class="logo logo-dark">
+                <img src="/static/assets/steno-logo-light.png" alt="Steno" height="28" class="logo logo-light">
             </div>
             <div class="header-center">
                 <span class="session-title" id="session-title">&mdash;</span>
@@ -1399,12 +1398,7 @@ html, body {
 <div class="setup-overlay hidden" id="setup-overlay">
     <div class="setup-card">
         <div class="setup-icon">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
+            <img src="/static/assets/steno-icon.png" alt="Steno" height="64">
         </div>
         <h1 id="setup-title">Welcome to Steno</h1>
         <p class="setup-subtitle" id="setup-subtitle">Choose a transcription model optimized for your hardware</p>
@@ -1477,6 +1471,9 @@ html, body {
 <!-- New Session Modal -->
 <div class="modal-overlay hidden" id="session-modal">
     <div class="modal">
+        <div style="text-align:center;margin-bottom:12px;">
+            <img src="/static/assets/steno-icon.png" alt="Steno" height="64">
+        </div>
         <h2 id="modal-title">New Session</h2>
         <p class="tagline" id="modal-tagline">Real-time transcription for classes & meetings</p>
         <div class="form-group">

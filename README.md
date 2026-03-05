@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="assets/steno-logo-dark.png" alt="Steno" height="48">
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS">
   <img src="https://img.shields.io/badge/Apple%20Silicon-native-000000?style=flat-square&logo=apple&logoColor=white" alt="Apple Silicon">
   <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
@@ -267,6 +271,17 @@ Steno is **100% local and fully offline**.
 - [ ] **Search across sessions** — Full-text search over all past transcripts and notes
 - [ ] **Additional languages** — More UI translations and transcription language support
 - [ ] **PDF export** — Export sessions as formatted PDF documents
+
+## Branding
+
+The `assets/` directory contains the official Steno brand assets:
+
+| Asset | File | Usage |
+|---|---|---|
+| App icon | `steno-icon.png` | Dock icon, favicon, app launcher |
+| Logo (dark) | `steno-logo-dark.png` | Headers and dark backgrounds |
+| Logo (light) | `steno-logo-light.png` | Light backgrounds and light-mode UI |
+| Wordmark | `steno-wordmark.png` | Text-only contexts (documentation, banners) |
 
 ## Contributing
 
