@@ -4,6 +4,7 @@ Steno — Real-time transcription for classes & meetings.
 Run with: uv run main.py
 """
 
+import os
 import threading
 import webbrowser
 
@@ -21,5 +22,9 @@ def _open_browser():
 
 if __name__ == "__main__":
     print(f"\n  Steno is running at http://{Config.HOST}:{Config.PORT}\n")
-    threading.Thread(target=_open_browser, daemon=True).start()
+
+    # Don't open browser when running inside Electron
+    if not os.environ.get("STENO_ELECTRON"):
+        threading.Thread(target=_open_browser, daemon=True).start()
+
     uvicorn.run(app, host=Config.HOST, port=Config.PORT, log_level="info")

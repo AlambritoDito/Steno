@@ -44,3 +44,11 @@ sessions/*.md
 
 # uv
 .python-version
+
+# Node / Electron
+node_modules/
+package-lock.json
+*.dmg
+
+# PyInstaller
+*.spec

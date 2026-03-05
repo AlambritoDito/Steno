@@ -104,13 +104,38 @@ class Config:
     SETTINGS_FILE = ".steno_settings.json"
 
     @classmethod
+    def is_frozen(cls) -> bool:
+        """Return True when running as a PyInstaller bundle."""
+        import sys
+        return getattr(sys, "frozen", False)
+
+    @classmethod
     def project_root(cls) -> Path:
-        """Return the project root directory."""
+        """Return the project root (or PyInstaller bundle root)."""
+        if cls.is_frozen():
+            import sys
+            return Path(sys._MEIPASS)
         return Path(__file__).parent.parent
 
     @classmethod
+    def data_dir(cls) -> Path:
+        """Writable directory for sessions, settings, and user data.
+
+        When running as a packaged app, this points to
+        ``~/Documents/Steno/`` so data persists between launches.
+        In development, it falls back to the project root.
+        """
+        if cls.is_frozen():
+            data = Path.home() / "Documents" / "Steno"
+            data.mkdir(parents=True, exist_ok=True)
+            return data
+        return cls.project_root()
+
+    @classmethod
     def sessions_path(cls) -> Path:
-        return cls.project_root() / cls.SESSIONS_DIR
+        path = cls.data_dir() / cls.SESSIONS_DIR
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @classmethod
     def static_path(cls) -> Path:
@@ -122,7 +147,7 @@ class Config:
 
     @classmethod
     def settings_path(cls) -> Path:
-        return cls.project_root() / cls.SETTINGS_FILE
+        return cls.data_dir() / cls.SETTINGS_FILE
 
     @classmethod
     def load_settings(cls) -> dict:
