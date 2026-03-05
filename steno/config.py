@@ -1,6 +1,7 @@
 """Global configuration for Steno."""
 
 import json
+import shutil
 from pathlib import Path
 
 
@@ -162,3 +163,34 @@ class Config:
         """Save settings to disk."""
         path = cls.settings_path()
         path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def model_cache_path(repo: str) -> Path | None:
+        """Return the HuggingFace cache directory for a model repo, or None."""
+        # HF stores models in ~/.cache/huggingface/hub/models--{org}--{name}
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        folder_name = "models--" + repo.replace("/", "--")
+        path = cache_dir / folder_name
+        return path if path.exists() else None
+
+    @staticmethod
+    def delete_model_cache(repo: str) -> bool:
+        """Delete a model's HuggingFace cache. Returns True if deleted."""
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        folder_name = "models--" + repo.replace("/", "--")
+        path = cache_dir / folder_name
+        if path.exists():
+            shutil.rmtree(path)
+            return True
+        return False
+
+    @staticmethod
+    def model_cache_size_mb(repo: str) -> float:
+        """Return the disk size of a model cache in MB."""
+        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        folder_name = "models--" + repo.replace("/", "--")
+        path = cache_dir / folder_name
+        if not path.exists():
+            return 0.0
+        total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        return round(total / (1024 * 1024), 1)

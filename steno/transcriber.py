@@ -1,12 +1,15 @@
 """MLX-Whisper transcription wrapper for Steno."""
 
 import asyncio
+import logging
 from collections.abc import Callable, Coroutine
 from typing import Any
 
 import numpy as np
 
 from steno.config import Config
+
+logger = logging.getLogger("steno.transcriber")
 
 
 class Transcriber:
@@ -57,37 +60,43 @@ class Transcriber:
     def _load_model(self) -> None:
         """Load the mlx-whisper model (runs in a thread)."""
         import mlx_whisper
+        logger.info("Loading model: %s (language=%s)", self._model_name, self._language)
         # Trigger model download/load by running a tiny silent transcription
         mlx_whisper.transcribe(
             np.zeros(Config.SAMPLE_RATE, dtype=np.float32),
             path_or_hf_repo=self._model_name,
             language=self._language,
         )
+        logger.info("Model loaded successfully: %s", self._model_name)
 
     def _run_transcription(self, audio_chunk: np.ndarray) -> str:
         """Run transcription in a thread."""
         import mlx_whisper
+        logger.debug("Transcribing chunk of %d samples...", len(audio_chunk))
         result = mlx_whisper.transcribe(
             audio_chunk,
             path_or_hf_repo=self._model_name,
             language=self._language,
         )
         text = result.get("text", "").strip()
+        if text:
+            logger.info("Transcription result: %s", text[:100])
         return text
 
     def download_model(self) -> None:
-        """Download/cache the model without transcribing (runs in a thread)."""
-        self._load_model()
-        self._loaded = True
+        """Download/cache the model without transcribing (runs in a thread).
+
+        Uses huggingface_hub directly to avoid importing mlx native
+        extensions, which fail inside PyInstaller bundles.
+        """
+        from huggingface_hub import snapshot_download
+        snapshot_download(self._model_name)
 
     @staticmethod
     def download_model_by_repo(repo: str) -> None:
         """Download/cache any model by repo name (runs in thread)."""
-        import mlx_whisper
-        mlx_whisper.transcribe(
-            np.zeros(Config.SAMPLE_RATE, dtype=np.float32),
-            path_or_hf_repo=repo,
-        )
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo)
 
     def transcribe_file(self, file_path: str) -> list[dict]:
         """Transcribe an entire audio file. Returns list of segments.

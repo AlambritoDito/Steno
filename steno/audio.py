@@ -1,9 +1,13 @@
 """Microphone audio capture for Steno."""
 
+import logging
+
 import numpy as np
 import sounddevice as sd
 
 from steno.config import Config
+
+logger = logging.getLogger("steno.audio")
 
 
 class AudioCaptureError(Exception):
@@ -43,11 +47,15 @@ class AudioCapture:
         (float32, mono, 16kHz).
         """
         if self._recording:
+            logger.warning("start() called but already recording")
             return
 
         self._callback = callback
         self._buffer = []
         self._overlap_buffer = None
+
+        logger.info("Starting audio capture: device=%s, sr=%d, chunk=%ds",
+                     device_index, Config.SAMPLE_RATE, Config.CHUNK_DURATION)
 
         try:
             self._stream = sd.InputStream(
@@ -60,11 +68,15 @@ class AudioCapture:
             )
             self._stream.start()
             self._recording = True
+            logger.info("Audio capture started successfully")
         except Exception as e:
+            logger.error("Audio capture failed: %s", e)
             raise AudioCaptureError(f"Could not start audio capture: {e}") from e
 
     def _audio_callback(self, indata, frames, time_info, status):
         """Internal callback from sounddevice."""
+        if status:
+            logger.warning("Audio stream status: %s", status)
         audio = indata[:, 0].copy()  # mono
         self._buffer.append(audio)
 
