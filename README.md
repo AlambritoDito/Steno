@@ -138,6 +138,7 @@ Steno is **100% local and fully offline**.
 ## Roadmap
 
 - [ ] **Desktop app (Electron)** — One-click install for non-technical users. No terminal, no Python setup. Just download, open, and start transcribing. *(Coming soon)*
+- [ ] **Virtual meeting capture** — Record and transcribe Zoom, Google Meet, and Microsoft Teams sessions by capturing system audio. Auto-capture presentation slides and screen shares as timestamped screenshots embedded in your notes
 - [ ] **Speaker diarization** — Identify and label different speakers in the transcript
 - [ ] **Search across sessions** — Full-text search over all past transcripts and notes
 - [ ] **Additional languages** — More UI translations and transcription language support
