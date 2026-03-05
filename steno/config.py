@@ -85,6 +85,9 @@ def recommend_model(ram_gb: float) -> str:
         return "base"
 
 
+SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".mp4"}
+
+
 class Config:
     MODEL_NAME = "mlx-community/whisper-large-v3-turbo"
     SAMPLE_RATE = 16000  # Hz required by Whisper

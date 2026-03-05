@@ -45,5 +45,15 @@
   "setup_first_time_notice": "Esto puede tardar unos minutos la primera vez",
   "setup_download_complete": "Descarga completa",
   "setup_download_error": "Error en la descarga. Intenta de nuevo.",
-  "setup_retry": "Reintentar"
+  "setup_retry": "Reintentar",
+  "manage_models": "Administrar Modelos",
+  "manage_models_subtitle": "Descarga modelos para diferentes entornos",
+  "model_active": "Activo",
+  "model_downloaded": "Listo",
+  "model_use": "Usar",
+  "model_download": "Descargar",
+  "upload_audio": "Sube un archivo de audio para transcribir",
+  "transcribing_file": "Transcribiendo...",
+  "segments_transcribed": "segmentos transcritos",
+  "transcribe_error": "Error en la transcripción"
 }

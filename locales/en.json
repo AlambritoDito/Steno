@@ -45,5 +45,15 @@
   "setup_first_time_notice": "This may take a few minutes on first launch",
   "setup_download_complete": "Download complete",
   "setup_download_error": "Download failed. Please try again.",
-  "setup_retry": "Retry"
+  "setup_retry": "Retry",
+  "manage_models": "Manage Models",
+  "manage_models_subtitle": "Download models for different environments",
+  "model_active": "Active",
+  "model_downloaded": "Ready",
+  "model_use": "Use",
+  "model_download": "Download",
+  "upload_audio": "Upload audio file to transcribe",
+  "transcribing_file": "Transcribing...",
+  "segments_transcribed": "segments transcribed",
+  "transcribe_error": "Transcription failed"
 }
