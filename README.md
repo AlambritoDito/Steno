@@ -43,7 +43,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/alanperez/steno.git
+git clone https://github.com/AlambritoDito/Steno.git
 cd steno
 uv sync
 uv run main.py
@@ -134,6 +134,14 @@ Steno is **100% local and fully offline**.
 - Session data is stored as plain Markdown files on your filesystem
 - No accounts, no analytics, no telemetry
 - No network requests except loading CodeMirror and marked.js from CDN on first page load
+
+## Roadmap
+
+- [ ] **Desktop app (Electron)** — One-click install for non-technical users. No terminal, no Python setup. Just download, open, and start transcribing. *(Coming soon)*
+- [ ] **Speaker diarization** — Identify and label different speakers in the transcript
+- [ ] **Search across sessions** — Full-text search over all past transcripts and notes
+- [ ] **Additional languages** — More UI translations and transcription language support
+- [ ] **PDF export** — Export sessions as formatted PDF documents
 
 ## Contributing
 
