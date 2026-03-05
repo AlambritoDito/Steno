@@ -35,5 +35,15 @@
   "delete_session": "Eliminar sesión",
   "confirm_delete": "¿Estás seguro de que deseas eliminar esta sesión?",
   "cancel": "Cancelar",
-  "delete": "Eliminar"
+  "delete": "Eliminar",
+  "setup_welcome": "Bienvenido a Steno",
+  "setup_choose_model": "Elige un modelo de transcripción optimizado para tu hardware",
+  "setup_recommended": "Recomendado",
+  "setup_download_continue": "Descargar y continuar",
+  "setup_downloading": "Descargando...",
+  "setup_downloading_model": "Descargando modelo...",
+  "setup_first_time_notice": "Esto puede tardar unos minutos la primera vez",
+  "setup_download_complete": "Descarga completa",
+  "setup_download_error": "Error en la descarga. Intenta de nuevo.",
+  "setup_retry": "Reintentar"
 }

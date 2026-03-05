@@ -35,5 +35,15 @@
   "delete_session": "Delete session",
   "confirm_delete": "Are you sure you want to delete this session?",
   "cancel": "Cancel",
-  "delete": "Delete"
+  "delete": "Delete",
+  "setup_welcome": "Welcome to Steno",
+  "setup_choose_model": "Choose a transcription model optimized for your hardware",
+  "setup_recommended": "Recommended",
+  "setup_download_continue": "Download & Continue",
+  "setup_downloading": "Downloading...",
+  "setup_downloading_model": "Downloading model...",
+  "setup_first_time_notice": "This may take a few minutes on first launch",
+  "setup_download_complete": "Download complete",
+  "setup_download_error": "Download failed. Please try again.",
+  "setup_retry": "Retry"
 }

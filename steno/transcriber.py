@@ -24,6 +24,13 @@ class Transcriber:
         self._loaded = False
         self._status_callback = status_callback
 
+    def set_model(self, model_name: str) -> None:
+        """Change the model (resets loaded state)."""
+        if model_name != self._model_name:
+            self._model_name = model_name
+            self._loaded = False
+            self._model = None
+
     async def transcribe(self, audio_chunk: np.ndarray) -> str:
         """Transcribe an audio chunk, returning the text string.
 
@@ -67,6 +74,11 @@ class Transcriber:
         )
         text = result.get("text", "").strip()
         return text
+
+    def download_model(self) -> None:
+        """Download/cache the model without transcribing (runs in a thread)."""
+        self._load_model()
+        self._loaded = True
 
     def is_loaded(self) -> bool:
         """Return whether the model has been loaded."""

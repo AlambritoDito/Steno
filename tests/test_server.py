@@ -15,6 +15,7 @@ def clean_state(tmp_path, monkeypatch):
     _sessions.clear()
     # Manually set transcriber since lifespan doesn't run in ASGITransport
     app.state.transcriber = Transcriber()
+    app.state.setup_complete = True
     yield
 
 
