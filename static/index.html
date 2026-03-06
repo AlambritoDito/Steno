@@ -6,9 +6,7 @@
 <title>Steno</title>
 <link rel="icon" type="image/png" href="/static/assets/steno-icon.png">
 
-<!-- CodeMirror 6 from CDN -->
-<script src="https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.cjs.min.js" type="module"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@codemirror/view@6/dist/index.css">
+<!-- Notes editor uses a native textarea for reliability -->
 
 <!-- marked.js for Markdown rendering -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
@@ -95,8 +93,8 @@
         --sidebar-bg: rgba(28, 28, 30, 0.72);
         --sidebar-hover: rgba(255, 255, 255, 0.06);
     }
-    .logo-dark { display: none; }
-    .logo-light { display: inline; }
+    .logo-light { display: none; }
+    .logo-dark { display: inline; }
 }
 
 html, body {
@@ -252,10 +250,10 @@ body.electron .header-left {
     color: var(--text-primary);
 }
 
-/* NOTE: logo-dark shown by default (light mode); logo-light shown in dark mode */
+/* NOTE: logo-light (dark text) for light mode; logo-dark (white text) for dark mode */
 .logo { height: 28px; }
-.logo-light { display: none; }
-.logo-dark { display: inline; }
+.logo-light { display: inline; }
+.logo-dark { display: none; }
 
 .header-center {
     flex: 1;
@@ -574,48 +572,38 @@ body.electron .header-left {
 
 #editor-container {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-#editor-container .cm-editor {
-    height: 100%;
-    background: var(--bg-primary);
-}
-
-#editor-container .cm-content {
-    font-family: var(--font-sans);
+#notes-textarea {
+    flex: 1;
+    width: 100%;
+    border: none;
+    outline: none;
+    resize: none;
+    font-family: var(--font-mono, 'SF Mono', 'Fira Code', 'Consolas', monospace);
     font-size: 14px;
+    line-height: 1.6;
     color: var(--text-primary);
+    background: var(--bg-primary);
     padding: 16px 20px;
     caret-color: var(--accent);
 }
 
-#editor-container .cm-gutters {
-    background: var(--bg-primary);
-    border-right: 1px solid var(--border);
+#notes-textarea::placeholder {
     color: var(--text-muted);
 }
 
-#editor-container .cm-activeLine {
-    background: var(--accent-bg);
-}
-
-#editor-container .cm-selectionBackground {
-    background: rgba(0, 122, 255, 0.15) !important;
+#notes-textarea::selection {
+    background: rgba(0, 122, 255, 0.15);
 }
 
 @media (prefers-color-scheme: dark) {
-    #editor-container .cm-selectionBackground {
-        background: rgba(10, 132, 255, 0.2) !important;
+    #notes-textarea::selection {
+        background: rgba(10, 132, 255, 0.2);
     }
-}
-
-#editor-container .cm-cursor {
-    border-left-color: var(--accent);
-}
-
-#editor-container .cm-scroller {
-    overflow: auto;
 }
 
 #preview-container {
@@ -1560,7 +1548,9 @@ body.electron .header-left {
                     </div>
                 </div>
                 <div class="editor-area">
-                    <div id="editor-container"></div>
+                    <div id="editor-container">
+                        <textarea id="notes-textarea" placeholder="Write your notes in Markdown..."></textarea>
+                    </div>
                     <div id="preview-container"></div>
                 </div>
                 <div class="panel-footer">
@@ -1793,10 +1783,18 @@ body.electron .header-left {
             <select id="modal-mic-select"></select>
         </div>
         <div class="form-group">
-            <label data-i18n="language" for="modal-lang-select">Language</label>
-            <select id="modal-lang-select">
+            <label data-i18n="setup_transcription_language" for="modal-transcription-lang">Transcription language</label>
+            <select id="modal-transcription-lang">
+                <option value="">Auto-detect</option>
                 <option value="en">English</option>
                 <option value="es">Espa&ntilde;ol</option>
+                <option value="fr">Fran&ccedil;ais</option>
+                <option value="de">Deutsch</option>
+                <option value="it">Italiano</option>
+                <option value="pt">Portugu&ecirc;s</option>
+                <option value="ja">&#x65E5;&#x672C;&#x8A9E;</option>
+                <option value="ko">&#xD55C;&#xAD6D;&#xC5B4;</option>
+                <option value="zh">&#x4E2D;&#x6587;</option>
             </select>
         </div>
         <div class="modal-actions">
@@ -1864,55 +1862,39 @@ body.electron .header-left {
     </div>
 </div>
 
-<!-- CodeMirror 6 via ESM CDN -->
-<script type="module">
-import {EditorView, basicSetup} from "https://cdn.jsdelivr.net/npm/codemirror@6/dist/index.js";
-import {markdown} from "https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/dist/index.js";
-import {EditorState} from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/dist/index.js";
+<!-- Notes editor — uses native textarea for reliability -->
+<script>
+(function() {
+    const textarea = document.getElementById("notes-textarea");
+    if (!textarea) return;
 
-const customTheme = EditorView.theme({
-    "&": { backgroundColor: "transparent" },
-    ".cm-content": {
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
-        fontSize: "14px",
-    },
-    ".cm-gutters": { border: "none" },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "rgba(0,122,255,0.12)" },
-    ".cm-activeLine": { backgroundColor: "rgba(0,122,255,0.04)" },
-    ".cm-cursor": { borderLeftColor: "#007aff" },
-});
-
-const state = EditorState.create({
-    doc: "",
-    extensions: [
-        basicSetup,
-        markdown(),
-        customTheme,
-        EditorView.lineWrapping,
-    ],
-});
-
-const editor = new EditorView({
-    state,
-    parent: document.getElementById("editor-container"),
-});
-
-// Expose editor globally
-window.cmEditor = editor;
-
-// Drag & drop images onto editor
-editor.dom.addEventListener("dragover", (e) => { e.preventDefault(); });
-editor.dom.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const files = e.dataTransfer?.files;
-    if (files && files.length > 0) {
-        for (const file of files) {
-            if (file.type.startsWith("image/")) {
-                uploadImageFile(file);
+    // Drag & drop images onto textarea
+    textarea.addEventListener("dragover", (e) => { e.preventDefault(); });
+    textarea.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+            for (const file of files) {
+                if (file.type.startsWith("image/")) {
+                    uploadImageFile(file);
+                }
             }
         }
-    }
-});
+    });
+
+    // Tab key inserts spaces instead of changing focus
+    textarea.addEventListener("keydown", (e) => {
+        if (e.key === "Tab") {
+            e.preventDefault();
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            textarea.value = textarea.value.substring(0, start) + "    " + textarea.value.substring(end);
+            textarea.selectionStart = textarea.selectionEnd = start + 4;
+        }
+    });
+
+    console.log("[Steno] Notes textarea initialized");
+})();
 </script>
 
 <script>
@@ -1957,6 +1939,7 @@ function applyI18n() {
     document.getElementById("session-name-input").placeholder = t.session_name_placeholder || "";
     document.getElementById("start-session-btn").textContent = t.start_session || "Start Session";
     document.getElementById("notes-title").textContent = "Notes";
+    document.getElementById("notes-textarea").placeholder = t.notes_placeholder || "Write your notes in Markdown...";
     document.getElementById("insert-image-label").title = t.insert_image || "Insert image";
     document.getElementById("confirm-cancel-btn").textContent = t.cancel || "Cancel";
     document.getElementById("confirm-delete-btn").textContent = t.delete || "Delete";
@@ -2275,30 +2258,43 @@ async function finishSetup() {
 
 /* ========== Model Management ========== */
 async function loadModelSelector() {
+    const select = document.getElementById("model-select");
     try {
         const resp = await fetch("/api/models");
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const select = document.getElementById("model-select");
         select.innerHTML = "";
 
-        data.models.forEach(m => {
-            if (m.downloaded) {
-                const opt = document.createElement("option");
-                opt.value = m.key;
-                opt.textContent = m.key + (m.active ? " \u2713" : "");
-                opt.selected = m.active;
-                select.appendChild(opt);
-            }
+        const downloaded = (data.models || []).filter(m => m.downloaded);
+        downloaded.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.key;
+            opt.textContent = m.key + (m.active ? " \u2713" : "");
+            opt.selected = m.active;
+            select.appendChild(opt);
         });
 
-        // If only one model, still show it
         if (select.options.length === 0) {
-            const opt = document.createElement("option");
-            opt.textContent = "No models";
-            select.appendChild(opt);
+            // Fallback: show the active model from status
+            const statusResp = await fetch("/api/status");
+            const status = await statusResp.json();
+            if (status.model_info) {
+                const opt = document.createElement("option");
+                opt.value = status.model_info;
+                opt.textContent = status.model_info;
+                select.appendChild(opt);
+            } else {
+                const opt = document.createElement("option");
+                opt.textContent = "No models";
+                select.appendChild(opt);
+            }
         }
+
+        log(`Model selector: ${select.options.length} model(s) loaded`);
     } catch (e) {
+        log("Failed to load models: " + e.message, "error");
         console.error("Failed to load models:", e);
+        select.innerHTML = '<option>Error loading models</option>';
     }
 }
 
@@ -2530,6 +2526,7 @@ async function loadDevices() {
     try {
         const resp = await fetch("/api/devices");
         const devices = await resp.json();
+        const savedMic = localStorage.getItem("steno_mic_index");
         const selects = [document.getElementById("mic-select"), document.getElementById("modal-mic-select")];
         selects.forEach(select => {
             select.innerHTML = "";
@@ -2543,6 +2540,11 @@ async function loadDevices() {
                 const opt = document.createElement("option");
                 opt.textContent = t.select_microphone || "No microphone found";
                 select.appendChild(opt);
+            }
+            // Restore saved mic preference
+            if (savedMic !== null) {
+                const exists = Array.from(select.options).some(o => o.value === savedMic);
+                if (exists) select.value = savedMic;
             }
         });
     } catch (e) {
@@ -2632,6 +2634,10 @@ async function viewSession(id) {
 
 function showNewSessionModal() {
     document.getElementById("session-modal").classList.remove("hidden");
+    // Restore saved transcription language
+    const savedTransLang = localStorage.getItem("steno_transcription_lang") || "";
+    const transLangSelect = document.getElementById("modal-transcription-lang");
+    if (transLangSelect) transLangSelect.value = savedTransLang;
 }
 
 async function startSession() {
@@ -2641,11 +2647,10 @@ async function startSession() {
         return;
     }
 
-    // Apply selected language
-    const langSelect = document.getElementById("modal-lang-select");
-    if (langSelect.value !== currentLang) {
-        await loadI18n(langSelect.value);
-    }
+    // Save transcription language preference
+    const transLangSelect = document.getElementById("modal-transcription-lang");
+    const transLang = transLangSelect.value;
+    localStorage.setItem("steno_transcription_lang", transLang);
 
     try {
         log(`Creating session: "${name}"`);
@@ -2677,10 +2682,11 @@ async function startSession() {
         // Reload sidebar
         loadSessions();
 
-        // Sync mic selection
+        // Sync mic selection and save preference
         const micSelect = document.getElementById("mic-select");
         const modalMic = document.getElementById("modal-mic-select");
         micSelect.value = modalMic.value;
+        localStorage.setItem("steno_mic_index", modalMic.value);
         log(`Microphone selected: device_index=${micSelect.value}`);
 
     } catch (e) {
@@ -2793,8 +2799,9 @@ function toggleRecording() {
     } else {
         const deviceIndex = parseInt(document.getElementById("mic-select").value);
         const devIdx = isNaN(deviceIndex) ? null : deviceIndex;
-        log(`Starting recording with device_index=${devIdx}`);
-        ws.send(JSON.stringify({ type: "start", device_index: devIdx }));
+        const transLang = localStorage.getItem("steno_transcription_lang") || "";
+        log(`Starting recording with device_index=${devIdx}, language=${transLang || "auto"}`);
+        ws.send(JSON.stringify({ type: "start", device_index: devIdx, language: transLang || null }));
     }
 }
 
@@ -2875,26 +2882,26 @@ function addTranscriptEntry(text, timestamp) {
 
 /* ========== Notes ========== */
 function insertFormat(before, after) {
-    const editor = window.cmEditor;
-    if (!editor) return;
+    const textarea = document.getElementById("notes-textarea");
+    if (!textarea) return;
 
-    const { from, to } = editor.state.selection.main;
-    const selectedText = editor.state.sliceDoc(from, to);
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = textarea.value.substring(start, end);
     const replacement = before + selectedText + after;
 
-    editor.dispatch({
-        changes: { from, to, insert: replacement },
-        selection: { anchor: from + before.length, head: from + before.length + selectedText.length },
-    });
-    editor.focus();
+    textarea.value = textarea.value.substring(0, start) + replacement + textarea.value.substring(end);
+    textarea.selectionStart = start + before.length;
+    textarea.selectionEnd = start + before.length + selectedText.length;
+    textarea.focus();
 }
 
 async function saveNote() {
     if (!currentSessionId) return;
-    const editor = window.cmEditor;
-    if (!editor) return;
+    const textarea = document.getElementById("notes-textarea");
+    if (!textarea) return;
 
-    const md = editor.state.doc.toString();
+    const md = textarea.value;
     if (!md.trim()) return;
 
     try {
@@ -2903,7 +2910,9 @@ async function saveNote() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ markdown: md }),
         });
+        log("Note saved");
     } catch (e) {
+        log("Failed to save note: " + e.message, "error");
         console.error("Failed to save note:", e);
     }
 }
@@ -2919,15 +2928,15 @@ function showPreview(show) {
     const previewBtn = document.getElementById("btn-preview");
 
     if (show) {
-        const editor = window.cmEditor;
-        const md = editor ? editor.state.doc.toString() : "";
+        const textarea = document.getElementById("notes-textarea");
+        const md = textarea ? textarea.value : "";
         previewContainer.innerHTML = marked.parse(md);
         editorContainer.style.display = "none";
         previewContainer.style.display = "block";
         previewBtn.querySelector("span").textContent = t.edit || "Edit";
         isPreviewMode = true;
     } else {
-        editorContainer.style.display = "block";
+        editorContainer.style.display = "flex";
         previewContainer.style.display = "none";
         previewBtn.querySelector("span").textContent = t.preview || "Preview";
         isPreviewMode = false;
@@ -2955,13 +2964,14 @@ async function uploadImageFile(file) {
         });
         const data = await resp.json();
 
-        // Insert the markdown tag into the editor
-        const editor = window.cmEditor;
-        if (editor && data.tag) {
-            const pos = editor.state.selection.main.head;
-            editor.dispatch({
-                changes: { from: pos, insert: "\n" + data.tag + "\n" },
-            });
+        // Insert the markdown tag into the textarea
+        const textarea = document.getElementById("notes-textarea");
+        if (textarea && data.tag) {
+            const pos = textarea.selectionStart;
+            const before = textarea.value.substring(0, pos);
+            const after = textarea.value.substring(pos);
+            textarea.value = before + "\n" + data.tag + "\n" + after;
+            textarea.selectionStart = textarea.selectionEnd = pos + data.tag.length + 2;
         }
     } catch (e) {
         console.error("Failed to upload image:", e);
@@ -3171,8 +3181,10 @@ async function init() {
     const lang = savedLang || (["en", "es"].includes(browserLang) ? browserLang : "en");
     log(`Language: ${lang}`);
 
-    // Set modal language selector
-    document.getElementById("modal-lang-select").value = lang;
+    // Restore saved transcription language in modal
+    const savedTransLang = localStorage.getItem("steno_transcription_lang") || "";
+    const transLangEl = document.getElementById("modal-transcription-lang");
+    if (transLangEl) transLangEl.value = savedTransLang;
 
     // Load i18n, devices, sessions, and model selector in parallel
     await Promise.all([

@@ -89,14 +89,26 @@ class Transcriber:
         Uses huggingface_hub directly to avoid importing mlx native
         extensions, which fail inside PyInstaller bundles.
         """
-        from huggingface_hub import snapshot_download
-        snapshot_download(self._model_name)
+        logger.info("Downloading model: %s", self._model_name)
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(self._model_name, resume_download=True)
+            logger.info("Model download complete: %s", self._model_name)
+        except Exception as e:
+            logger.error("Model download failed for %s: %s", self._model_name, e)
+            raise
 
     @staticmethod
     def download_model_by_repo(repo: str) -> None:
         """Download/cache any model by repo name (runs in thread)."""
-        from huggingface_hub import snapshot_download
-        snapshot_download(repo)
+        logger.info("Downloading model by repo: %s", repo)
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo, resume_download=True)
+            logger.info("Model download complete: %s", repo)
+        except Exception as e:
+            logger.error("Model download failed for %s: %s", repo, e)
+            raise
 
     def transcribe_file(self, file_path: str) -> list[dict]:
         """Transcribe an entire audio file. Returns list of segments.

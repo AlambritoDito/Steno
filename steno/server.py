@@ -139,14 +139,27 @@ async def select_model(body: dict):
 
 @app.get("/api/models")
 async def get_models():
-    """List all models with download status."""
+    """List all models with download status.
+
+    Auto-detects models present in the HuggingFace cache even if they
+    aren't tracked in settings (self-healing after resets / first runs).
+    """
     settings = Config.load_settings()
-    downloaded = settings.get("downloaded_models", [])
+    downloaded = set(settings.get("downloaded_models", []))
     active_repo = app.state.transcriber._model_name
+    settings_dirty = False
 
     models = []
     for key, info in WHISPER_MODELS.items():
-        is_downloaded = key in downloaded
+        # Check both settings list AND physical HF cache
+        on_disk = Config.model_cache_path(info["repo"]) is not None
+        is_downloaded = key in downloaded or on_disk
+
+        # Self-heal: sync settings if model is on disk but not tracked
+        if on_disk and key not in downloaded:
+            downloaded.add(key)
+            settings_dirty = True
+
         disk_mb = 0.0
         if is_downloaded:
             disk_mb = Config.model_cache_size_mb(info["repo"])
@@ -161,6 +174,11 @@ async def get_models():
             "active": info["repo"] == active_repo,
         })
 
+    # Persist any self-heal updates
+    if settings_dirty:
+        settings["downloaded_models"] = sorted(downloaded)
+        Config.save_settings(settings)
+
     return {"models": models, "active_repo": active_repo}
 
 
@@ -174,7 +192,11 @@ async def download_model(body: dict):
     model_info = WHISPER_MODELS[model_key]
     repo = model_info["repo"]
 
-    await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+    try:
+        await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+    except Exception as e:
+        logger.error("Model download failed: %s — %s", repo, e)
+        raise HTTPException(status_code=500, detail=f"Download failed: {e}")
 
     # Track downloaded models
     settings = Config.load_settings()
@@ -540,7 +562,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             elif msg_type == "start":
                 device_index = data.get("device_index")
-                logger.info("Recording start requested, device_index=%s", device_index)
+                language = data.get("language")  # None = auto-detect
+                logger.info("Recording start requested, device_index=%s, language=%s", device_index, language)
+
+                # Apply transcription language
+                transcriber._language = language
 
                 if _audio_capture.is_recording():
                     logger.warning("Already recording, ignoring start request")
