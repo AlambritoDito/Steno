@@ -37,7 +37,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
-app = FastAPI(title="Steno", version="0.1.0", lifespan=lifespan)
+APP_VERSION = "0.1.0-alpha.1"
+
+app = FastAPI(title="Steno", version=APP_VERSION, lifespan=lifespan)
 
 
 # --- Static file serving ---
@@ -66,6 +68,12 @@ async def get_status():
         "recording": _audio_capture.is_recording(),
         "setup_complete": app.state.setup_complete,
     }
+
+
+@app.get("/api/version")
+async def get_version():
+    """Return the current app version."""
+    return {"version": APP_VERSION}
 
 
 @app.get("/api/devices")
@@ -483,6 +491,7 @@ async def debug_info():
                 })
 
     return {
+        "app_version": APP_VERSION,
         "python_version": sys.version,
         "platform": platform.platform(),
         "is_frozen": Config.is_frozen(),

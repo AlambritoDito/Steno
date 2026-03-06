@@ -3091,6 +3091,7 @@ async function refreshDebugInfo() {
         const resp = await fetch("/api/debug/info");
         const info = await resp.json();
         const rows = [
+            ["Version", info.app_version || "?"],
             ["Python", info.python_version?.split(" ")[0] || "?"],
             ["Platform", info.platform || "?"],
             ["Frozen (packaged)", info.is_frozen ? "Yes" : "No"],
