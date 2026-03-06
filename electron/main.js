@@ -5,7 +5,7 @@
  * waits for it to be ready, then opens a BrowserWindow.
  */
 
-const { app, BrowserWindow, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, shell, systemPreferences } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const net = require("net");
@@ -104,6 +104,80 @@ function waitForPort(port, host, timeout) {
 }
 
 // ---------------------------------------------------------------------------
+// Application Menu (macOS standard with Cmd+, for Settings)
+// ---------------------------------------------------------------------------
+
+function buildAppMenu() {
+  const template = [
+    {
+      label: app.name,
+      submenu: [
+        { role: "about" },
+        { type: "separator" },
+        {
+          label: "Settings…",
+          accelerator: "CmdOrCtrl+,",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send("open-settings");
+              // Also call via JS in case preload bridge isn't set up
+              mainWindow.webContents.executeJavaScript(
+                "if(typeof showSettingsModal==='function')showSettingsModal();"
+              ).catch(() => {});
+            }
+          },
+        },
+        { type: "separator" },
+        { role: "services" },
+        { type: "separator" },
+        { role: "hide" },
+        { role: "hideOthers" },
+        { role: "unhide" },
+        { type: "separator" },
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" },
+        { role: "zoom" },
+        { type: "separator" },
+        { role: "front" },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
@@ -142,6 +216,15 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   try {
+    // Request microphone access on macOS before starting
+    if (process.platform === "darwin") {
+      const micStatus = systemPreferences.getMediaAccessStatus("microphone");
+      if (micStatus !== "granted") {
+        await systemPreferences.askForMediaAccess("microphone");
+      }
+    }
+
+    buildAppMenu();
     await startPythonServer();
     createWindow();
   } catch (err) {

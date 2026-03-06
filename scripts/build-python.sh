@@ -8,7 +8,6 @@
 # Prerequisites:
 #   brew install portaudio          # required by sounddevice
 #   uv sync                        # install Python deps
-#   uv pip install pyinstaller     # install PyInstaller
 # -------------------------------------------------------------------
 
 set -euo pipefail
@@ -20,6 +19,9 @@ cd "$PROJECT_ROOT"
 
 echo "==> Installing PyInstaller..."
 uv pip install pyinstaller
+
+echo "==> Cleaning previous build..."
+rm -rf dist/steno-server build/steno-server steno-server.spec
 
 echo "==> Building Steno backend..."
 uv run pyinstaller \
@@ -46,9 +48,16 @@ uv run pyinstaller \
     --hidden-import steno.session \
     --hidden-import steno.config \
     --hidden-import steno.i18n \
+    --hidden-import multipart \
+    --hidden-import aiofiles \
+    --hidden-import websockets \
+    --hidden-import _sounddevice_data \
+    --hidden-import huggingface_hub \
     main.py
 
 echo ""
 echo "==> Build complete!"
 echo "    Output: dist/steno-server/"
+echo "    Binary: dist/steno-server/steno-server"
+echo ""
 echo "    Run 'npm run build:electron' next to create the .dmg"

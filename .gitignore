@@ -6,7 +6,7 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
-build/
+build/steno-server/
 .eggs/
 
 # Virtual environments

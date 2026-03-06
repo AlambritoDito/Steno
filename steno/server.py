@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import tempfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -11,6 +12,9 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger("steno")
+logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
 
 from steno.audio import AudioCapture, AudioCaptureError
 from steno.config import Config, WHISPER_MODELS, SUPPORTED_AUDIO_EXTENSIONS, _detect_hardware, recommend_model
@@ -43,6 +47,9 @@ async def serve_index():
     """Serve the main UI."""
     index_path = Config.static_path() / "index.html"
     return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+
+# NOTE: Mount after the "/" route so explicit routes take priority over the catch-all static handler.
+app.mount("/static", StaticFiles(directory=str(Config.static_path())), name="static")
 
 
 # --- API Routes ---
@@ -81,6 +88,7 @@ async def get_hardware():
             "size_mb": info["size_mb"],
             "quality": info["quality"],
             "speed": info["speed"],
+            "min_ram_gb": info["min_ram_gb"],
             "recommended": key == recommended,
             "compatible": hw["ram_gb"] >= info["min_ram_gb"],
         })
@@ -131,22 +139,45 @@ async def select_model(body: dict):
 
 @app.get("/api/models")
 async def get_models():
-    """List all models with download status."""
+    """List all models with download status.
+
+    Auto-detects models present in the HuggingFace cache even if they
+    aren't tracked in settings (self-healing after resets / first runs).
+    """
     settings = Config.load_settings()
-    downloaded = settings.get("downloaded_models", [])
+    downloaded = set(settings.get("downloaded_models", []))
     active_repo = app.state.transcriber._model_name
+    settings_dirty = False
 
     models = []
     for key, info in WHISPER_MODELS.items():
+        # Check both settings list AND physical HF cache
+        on_disk = Config.model_cache_path(info["repo"]) is not None
+        is_downloaded = key in downloaded or on_disk
+
+        # Self-heal: sync settings if model is on disk but not tracked
+        if on_disk and key not in downloaded:
+            downloaded.add(key)
+            settings_dirty = True
+
+        disk_mb = 0.0
+        if is_downloaded:
+            disk_mb = Config.model_cache_size_mb(info["repo"])
         models.append({
             "key": key,
             "repo": info["repo"],
             "size_mb": info["size_mb"],
+            "disk_mb": disk_mb,
             "quality": info["quality"],
             "speed": info["speed"],
-            "downloaded": key in downloaded,
+            "downloaded": is_downloaded,
             "active": info["repo"] == active_repo,
         })
+
+    # Persist any self-heal updates
+    if settings_dirty:
+        settings["downloaded_models"] = sorted(downloaded)
+        Config.save_settings(settings)
 
     return {"models": models, "active_repo": active_repo}
 
@@ -161,7 +192,11 @@ async def download_model(body: dict):
     model_info = WHISPER_MODELS[model_key]
     repo = model_info["repo"]
 
-    await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+    try:
+        await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+    except Exception as e:
+        logger.error("Model download failed: %s — %s", repo, e)
+        raise HTTPException(status_code=500, detail=f"Download failed: {e}")
 
     # Track downloaded models
     settings = Config.load_settings()
@@ -194,6 +229,51 @@ async def set_active_model(body: dict):
     Config.save_settings(settings)
 
     return {"status": "ok", "model_key": model_key, "model_repo": repo}
+
+
+@app.delete("/api/models/{model_key}")
+async def delete_model(model_key: str):
+    """Delete a downloaded model to free disk space."""
+    if model_key not in WHISPER_MODELS:
+        raise HTTPException(status_code=422, detail="Invalid model key")
+
+    model_info = WHISPER_MODELS[model_key]
+    repo = model_info["repo"]
+
+    # Cannot delete the active model
+    if repo == app.state.transcriber._model_name:
+        raise HTTPException(status_code=409, detail="Cannot delete the active model")
+
+    deleted = await asyncio.to_thread(Config.delete_model_cache, repo)
+
+    # Remove from downloaded list in settings
+    settings = Config.load_settings()
+    downloaded = settings.get("downloaded_models", [])
+    if model_key in downloaded:
+        downloaded.remove(model_key)
+        settings["downloaded_models"] = downloaded
+        Config.save_settings(settings)
+
+    return {"status": "ok", "deleted": deleted, "model_key": model_key}
+
+
+@app.get("/api/mic-test")
+async def mic_test():
+    """Test microphone access by reading a short sample."""
+    import numpy as np
+    import sounddevice as sd
+
+    try:
+        # Record 0.5s of audio to test mic access
+        audio = await asyncio.to_thread(
+            sd.rec, int(0.5 * Config.SAMPLE_RATE), samplerate=Config.SAMPLE_RATE,
+            channels=1, dtype="float32", blocking=True
+        )
+        # Synchronous call needed after sd.rec with blocking=True
+        rms = float(np.sqrt(np.mean(audio**2)))
+        return {"status": "ok", "rms": rms, "has_audio": rms > 0.001}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.post("/api/sessions/{session_id}/transcribe-file")
@@ -350,6 +430,83 @@ async def delete_session(session_id: str):
     return {"status": "ok", "message": "Session deleted"}
 
 
+@app.post("/api/debug/reset")
+async def reset_app():
+    """Reset the app: delete all sessions and settings, clear in-memory state."""
+    # Stop any active recording
+    if _audio_capture.is_recording():
+        _audio_capture.stop()
+
+    # Clear in-memory sessions
+    _sessions.clear()
+
+    # Delete all session files
+    sessions_dir = Config.sessions_path()
+    deleted_sessions = 0
+    for f in sessions_dir.glob("*.md"):
+        f.unlink()
+        deleted_sessions += 1
+
+    # Reset settings (keep setup_complete=False to trigger setup wizard)
+    Config.save_settings({})
+    app.state.setup_complete = False
+
+    # Reset transcriber to default model
+    app.state.transcriber = Transcriber(model_name=Config.MODEL_NAME)
+
+    return {
+        "status": "ok",
+        "deleted_sessions": deleted_sessions,
+        "message": "App reset complete. Restart recommended.",
+    }
+
+
+@app.get("/api/debug/info")
+async def debug_info():
+    """Return debug information about the current app state."""
+    import sys
+    import platform
+
+    transcriber: Transcriber = app.state.transcriber
+    settings = Config.load_settings()
+
+    # Check HuggingFace cache
+    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+    cached_models = []
+    if hf_cache.exists():
+        for d in hf_cache.iterdir():
+            if d.is_dir() and d.name.startswith("models--"):
+                size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+                cached_models.append({
+                    "name": d.name.replace("models--", "").replace("--", "/"),
+                    "size_mb": round(size / (1024 * 1024), 1),
+                })
+
+    return {
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "is_frozen": Config.is_frozen(),
+        "data_dir": str(Config.data_dir()),
+        "sessions_path": str(Config.sessions_path()),
+        "settings_path": str(Config.settings_path()),
+        "settings": settings,
+        "transcriber": {
+            "model_name": transcriber._model_name,
+            "loaded": transcriber._loaded,
+            "language": transcriber._language,
+        },
+        "audio": {
+            "recording": _audio_capture.is_recording(),
+            "sample_rate": Config.SAMPLE_RATE,
+            "chunk_duration": Config.CHUNK_DURATION,
+            "silence_threshold": Config.SILENCE_THRESHOLD,
+        },
+        "active_sessions": list(_sessions.keys()),
+        "session_files": len(list(Config.sessions_path().glob("*.md"))),
+        "cached_models": cached_models,
+    }
+
+
 @app.get("/api/i18n/{lang}")
 async def get_locale(lang: str):
     """Return locale JSON for given language code."""
@@ -405,7 +562,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
             elif msg_type == "start":
                 device_index = data.get("device_index")
+                language = data.get("language")  # None = auto-detect
+                logger.info("Recording start requested, device_index=%s, language=%s", device_index, language)
+
+                # Apply transcription language
+                transcriber._language = language
+
                 if _audio_capture.is_recording():
+                    logger.warning("Already recording, ignoring start request")
                     await websocket.send_json({
                         "type": "error",
                         "message": "Already recording",
@@ -413,13 +577,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     continue
 
                 chunk_queue: asyncio.Queue = asyncio.Queue()
+                loop = asyncio.get_event_loop()
 
                 def on_chunk(chunk):
-                    chunk_queue.put_nowait(chunk)
+                    # sounddevice callback runs in a separate thread;
+                    # asyncio.Queue is NOT thread-safe, so schedule via the event loop
+                    loop.call_soon_threadsafe(chunk_queue.put_nowait, chunk)
 
                 try:
                     _audio_capture.start(device_index, on_chunk)
+                    logger.info("Audio capture started successfully")
                 except AudioCaptureError as e:
+                    logger.error("Audio capture failed: %s", e)
                     await websocket.send_json({
                         "type": "error",
                         "message": str(e),
@@ -434,6 +603,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
                 # Process chunks in background
                 async def process_chunks():
+                    chunk_count = 0
                     while _audio_capture.is_recording():
                         try:
                             chunk = await asyncio.wait_for(
@@ -442,8 +612,26 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         except asyncio.TimeoutError:
                             continue
 
-                        text = await transcriber.transcribe(chunk)
+                        chunk_count += 1
+                        import numpy as np
+                        rms = float(np.sqrt(np.mean(chunk**2)))
+                        logger.info("Chunk #%d received, RMS=%.4f, len=%d", chunk_count, rms, len(chunk))
+
+                        try:
+                            text = await transcriber.transcribe(chunk)
+                        except Exception as e:
+                            logger.error("Transcription error on chunk #%d: %s", chunk_count, e)
+                            try:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": f"Transcription error: {e}",
+                                })
+                            except Exception:
+                                pass
+                            continue
+
                         if text:
+                            logger.info("Transcribed: %s", text[:80])
                             now = datetime.now()
                             session.add_transcript(text, now)
                             session.save()
@@ -456,10 +644,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                 })
                             except Exception:
                                 break
+                        else:
+                            logger.debug("Chunk #%d was silence (RMS=%.4f)", chunk_count, rms)
+
+                    logger.info("Chunk processing loop ended after %d chunks", chunk_count)
 
                 asyncio.create_task(process_chunks())
 
             elif msg_type == "stop":
+                logger.info("Recording stop requested")
                 _audio_capture.stop()
                 await websocket.send_json({
                     "type": "status",
@@ -468,6 +661,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
 
     except WebSocketDisconnect:
+        logger.info("WebSocket disconnected for session %s", session_id)
         _audio_capture.stop()
-    except Exception:
+    except Exception as e:
+        logger.error("WebSocket error for session %s: %s", session_id, e)
         _audio_capture.stop()
