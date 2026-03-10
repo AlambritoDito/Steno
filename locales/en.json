@@ -98,5 +98,12 @@
   "settings_reset_description": "Delete all sessions, clear settings, and reset the app to its initial state. Downloaded models are preserved.",
   "settings_reset_btn": "Reset App & Delete All Data",
   "settings_reset_confirm_1": "This will permanently delete ALL sessions and reset all settings. Downloaded models will be preserved.\n\nAre you sure?",
-  "settings_reset_confirm_2": "Last chance — this action CANNOT be undone. Continue?"
+  "settings_reset_confirm_2": "Last chance — this action CANNOT be undone. Continue?",
+  "portaudio_missing": "PortAudio library not found. Recording is disabled. Install it with: brew install portaudio",
+  "error_loading_models": "Could not load models. Check your connection and try again.",
+  "error_generic_retry": "Something went wrong. Please try again.",
+  "update_available": "Steno {version} is available (you have {current})",
+  "update_download": "Download Update",
+  "update_dismiss": "Dismiss",
+  "debug_hint": "Press {shortcut} for debug tools"
 }

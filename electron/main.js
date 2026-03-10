@@ -154,7 +154,7 @@ function buildAppMenu() {
       submenu: [
         { role: "reload" },
         { role: "forceReload" },
-        { role: "toggleDevTools" },
+        ...(app.isPackaged ? [] : [{ role: "toggleDevTools" }]),
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },

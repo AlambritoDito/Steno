@@ -108,3 +108,46 @@ def test_get_duration_format():
     s = Session("Duration Test")
     duration = s.get_duration()
     assert re.match(r"^\d{2}:\d{2}:\d{2}$", duration)
+
+
+# --- v0.2.0: append_transcript ---
+
+
+def test_append_transcript_creates_file_with_header():
+    """append_transcript() creates the file with a header on first call."""
+    s = Session("Append Test")
+    path = s.append_transcript("First line", datetime.now())
+    assert path.exists()
+    content = path.read_text(encoding="utf-8")
+    assert "# Append Test" in content
+    assert "First line" in content
+
+
+def test_append_transcript_appends_without_rewriting_header():
+    """Multiple appends keep a single header."""
+    s = Session("Multi Append")
+    s.append_transcript("Line one", datetime.now())
+    s.append_transcript("Line two", datetime.now())
+    path = Config.sessions_path() / f"{s.session_id}.md"
+    content = path.read_text(encoding="utf-8")
+    assert content.count("# Multi Append") == 1
+    assert "Line one" in content
+    assert "Line two" in content
+
+
+def test_append_transcript_returns_path():
+    """append_transcript() returns a Path object."""
+    s = Session("Path Test")
+    result = s.append_transcript("text", datetime.now())
+    assert isinstance(result, Path)
+
+
+def test_save_overwrites_append_file():
+    """save() after append_transcript() writes the canonical format."""
+    s = Session("Overwrite Test")
+    s.append_transcript("appended text", datetime.now())
+    s.save()
+    path = Config.sessions_path() / f"{s.session_id}.md"
+    content = path.read_text(encoding="utf-8")
+    assert "**Duration:**" in content
+    assert "appended text" in content

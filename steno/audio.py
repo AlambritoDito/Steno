@@ -3,11 +3,21 @@
 import logging
 
 import numpy as np
-import sounddevice as sd
 
 from steno.config import Config
 
 logger = logging.getLogger("steno.audio")
+
+# Gracefully handle missing PortAudio (Issue #5)
+PORTAUDIO_AVAILABLE = True
+_portaudio_error = ""
+try:
+    import sounddevice as sd
+except OSError as e:
+    PORTAUDIO_AVAILABLE = False
+    _portaudio_error = str(e)
+    sd = None  # type: ignore[assignment]
+    logger.error("PortAudio not available: %s", e)
 
 
 class AudioCaptureError(Exception):
@@ -29,6 +39,10 @@ class AudioCapture:
     @staticmethod
     def list_devices() -> list[dict]:
         """List available input devices with index, name, and channels."""
+        if not PORTAUDIO_AVAILABLE:
+            raise AudioCaptureError(
+                "PortAudio library not found. Please install it: brew install portaudio"
+            )
         devices = sd.query_devices()
         result = []
         for i, dev in enumerate(devices):
@@ -46,6 +60,10 @@ class AudioCapture:
         Calls callback(chunk: numpy.ndarray) for each chunk
         (float32, mono, 16kHz).
         """
+        if not PORTAUDIO_AVAILABLE:
+            raise AudioCaptureError(
+                "PortAudio library not found. Please install it: brew install portaudio"
+            )
         if self._recording:
             logger.warning("start() called but already recording")
             return
@@ -82,8 +100,11 @@ class AudioCapture:
 
         total = sum(len(b) for b in self._buffer)
         if total >= self._chunk_samples:
-            chunk = np.concatenate(self._buffer)[:self._chunk_samples]
-            self._buffer = [np.concatenate(self._buffer)[self._chunk_samples - self._overlap_samples:]]
+            full = np.concatenate(self._buffer)
+            chunk = full[:self._chunk_samples]
+            # Keep only the overlap tail instead of re-concatenating (Issue #6)
+            remaining = full[self._chunk_samples - self._overlap_samples:]
+            self._buffer = [remaining] if len(remaining) > 0 else []
 
             # Prepend overlap from previous chunk
             if self._overlap_buffer is not None:

@@ -28,6 +28,7 @@ uv run pyinstaller \
     --name steno-server \
     --onedir \
     --noconfirm \
+    --strip \
     --add-data "static:static" \
     --add-data "locales:locales" \
     --hidden-import uvicorn.logging \
@@ -53,11 +54,29 @@ uv run pyinstaller \
     --hidden-import websockets \
     --hidden-import _sounddevice_data \
     --hidden-import huggingface_hub \
+    --exclude-module tkinter \
+    --exclude-module matplotlib \
+    --exclude-module scipy \
+    --exclude-module pandas \
+    --exclude-module PIL \
+    --exclude-module cv2 \
+    --exclude-module test \
+    --exclude-module unittest \
+    --exclude-module pydoc \
+    --exclude-module xmlrpc \
+    --exclude-module lib2to3 \
     main.py
 
 echo ""
+echo "==> Post-build cleanup..."
+find dist/steno-server -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find dist/steno-server -name '*.pyc' -delete 2>/dev/null || true
+find dist/steno-server -name 'tests' -type d -exec rm -rf {} + 2>/dev/null || true
+
+echo ""
 echo "==> Build complete!"
-echo "    Output: dist/steno-server/"
+BUNDLE_SIZE=$(du -sh dist/steno-server | cut -f1)
+echo "    Output: dist/steno-server/ ($BUNDLE_SIZE)"
 echo "    Binary: dist/steno-server/steno-server"
 echo ""
 echo "    Run 'npm run build:electron' next to create the .dmg"

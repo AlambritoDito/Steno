@@ -4,7 +4,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from steno.config import Config
-from steno.server import app, _sessions
+from steno.server import app, _sessions, _compare_versions
 from steno.transcriber import Transcriber
 
 
@@ -163,3 +163,132 @@ async def test_websocket_invalid_session():
         except Exception:
             # Connection should be rejected
             pass
+
+
+# --- v0.2.0: _compare_versions ---
+
+
+def test_compare_versions_newer():
+    """Higher numeric version compares greater."""
+    assert _compare_versions("0.2.0", "0.1.0") > 0
+
+
+def test_compare_versions_older():
+    """Lower numeric version compares less."""
+    assert _compare_versions("0.1.0", "0.2.0") < 0
+
+
+def test_compare_versions_equal():
+    """Identical versions compare equal."""
+    assert _compare_versions("0.2.0", "0.2.0") == 0
+
+
+def test_compare_versions_release_beats_prerelease():
+    """Release (no suffix) is greater than pre-release with same numbers."""
+    assert _compare_versions("0.2.0", "0.2.0-alpha.1") > 0
+
+
+def test_compare_versions_prerelease_less_than_release():
+    """Pre-release is less than release with same numbers."""
+    assert _compare_versions("0.1.0-alpha.1", "0.1.0") < 0
+
+
+def test_compare_versions_major_bump():
+    """Major version difference outweighs minor/patch."""
+    assert _compare_versions("1.0.0", "0.99.99") > 0
+
+
+# --- v0.2.0: /api/status includes portaudio_available ---
+
+
+@pytest.mark.asyncio
+async def test_status_includes_portaudio_available(client):
+    """GET /api/status includes portaudio_available boolean."""
+    resp = await client.get("/api/status")
+    data = resp.json()
+    assert "portaudio_available" in data
+    assert isinstance(data["portaudio_available"], bool)
+
+
+# --- v0.2.0: /api/download-progress ---
+
+
+@pytest.mark.asyncio
+async def test_download_progress_idle(client):
+    """Returns idle status when no download is active."""
+    import steno.server as server_mod
+    server_mod._download_progress.clear()
+    resp = await client.get("/api/download-progress")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "idle"
+    assert data["percent"] == 0
+
+
+@pytest.mark.asyncio
+async def test_download_progress_with_active_download(client):
+    """Returns correct percentage during an active download."""
+    import steno.server as server_mod
+    server_mod._download_progress.update({
+        "bytes_downloaded": 500,
+        "bytes_total": 1000,
+        "status": "downloading",
+    })
+    try:
+        resp = await client.get("/api/download-progress")
+        data = resp.json()
+        assert data["status"] == "downloading"
+        assert data["percent"] == 50.0
+        assert data["bytes_downloaded"] == 500
+        assert data["bytes_total"] == 1000
+    finally:
+        server_mod._download_progress.clear()
+
+
+# --- v0.2.0: /api/debug/info production guard ---
+
+
+@pytest.mark.asyncio
+async def test_debug_info_returns_data_in_dev(client, monkeypatch):
+    """Debug info is accessible in development mode."""
+    monkeypatch.setattr(Config, "is_frozen", staticmethod(lambda: False))
+    resp = await client.get("/api/debug/info")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "app_version" in data
+
+
+@pytest.mark.asyncio
+async def test_debug_info_returns_403_in_production(client, monkeypatch):
+    """Debug info is blocked in production without STENO_DEBUG."""
+    monkeypatch.setattr(Config, "is_frozen", staticmethod(lambda: True))
+    monkeypatch.delenv("STENO_DEBUG", raising=False)
+    resp = await client.get("/api/debug/info")
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_debug_info_allowed_in_production_with_debug_env(client, monkeypatch):
+    """Debug info is accessible in production when STENO_DEBUG is set."""
+    monkeypatch.setattr(Config, "is_frozen", staticmethod(lambda: True))
+    monkeypatch.setenv("STENO_DEBUG", "1")
+    resp = await client.get("/api/debug/info")
+    assert resp.status_code == 200
+
+
+# --- v0.2.0: /api/update-check graceful failure ---
+
+
+@pytest.mark.asyncio
+async def test_update_check_handles_network_error(client, monkeypatch):
+    """Returns update_available=False when network fails."""
+    import urllib.request
+
+    def mock_urlopen(*args, **kwargs):
+        raise ConnectionError("No network")
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    resp = await client.get("/api/update-check")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["update_available"] is False
+    assert "error" in data

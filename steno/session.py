@@ -87,8 +87,40 @@ class Session:
 
         return "\n".join(lines)
 
+    def append_transcript(self, text: str, timestamp: datetime | None = None) -> Path:
+        """Append a single transcript line to the session file (fast path).
+
+        Used during recording to avoid rewriting the entire file on every chunk.
+        Call save() when recording stops to write the canonical file.
+        """
+        if timestamp is None:
+            timestamp = datetime.now()
+        self._entries.append({
+            "type": "transcript",
+            "text": text,
+            "timestamp": timestamp,
+        })
+        sessions_dir = Config.sessions_path()
+        sessions_dir.mkdir(parents=True, exist_ok=True)
+        path = sessions_dir / f"{self.session_id}.md"
+
+        # If file doesn't exist yet, write the header first
+        if not path.exists():
+            header = (
+                f"# {self.name}\n\n"
+                f"**Date:** {self.created_at.strftime('%Y-%m-%d %H:%M')}\n"
+                f"**Duration:** {self.get_duration()}\n\n"
+                "---\n\n"
+            )
+            path.write_text(header, encoding="utf-8")
+
+        ts = timestamp.strftime("%H:%M:%S")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"**[{ts}]** {text}\n\n")
+        return path
+
     def save(self) -> Path:
-        """Save .md to sessions/ directory."""
+        """Save full .md to sessions/ directory (canonical write)."""
         sessions_dir = Config.sessions_path()
         sessions_dir.mkdir(parents=True, exist_ok=True)
         path = sessions_dir / f"{self.session_id}.md"

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from steno.audio import AudioCapture
+from steno.audio import AudioCapture, AudioCaptureError, PORTAUDIO_AVAILABLE
 from steno.config import Config
 
 
@@ -37,3 +37,28 @@ def test_chunk_size_matches_config():
     capture = AudioCapture()
     expected_samples = int(Config.SAMPLE_RATE * Config.CHUNK_DURATION)
     assert capture._chunk_samples == expected_samples
+
+
+# --- v0.2.0: PortAudio graceful detection ---
+
+
+def test_portaudio_available_flag_is_bool():
+    """PORTAUDIO_AVAILABLE is a boolean."""
+    assert isinstance(PORTAUDIO_AVAILABLE, bool)
+
+
+def test_list_devices_raises_when_portaudio_missing(monkeypatch):
+    """list_devices() raises AudioCaptureError when PortAudio is missing."""
+    import steno.audio as audio_mod
+    monkeypatch.setattr(audio_mod, "PORTAUDIO_AVAILABLE", False)
+    with pytest.raises(AudioCaptureError, match="PortAudio"):
+        AudioCapture.list_devices()
+
+
+def test_start_raises_when_portaudio_missing(monkeypatch):
+    """start() raises AudioCaptureError when PortAudio is missing."""
+    import steno.audio as audio_mod
+    monkeypatch.setattr(audio_mod, "PORTAUDIO_AVAILABLE", False)
+    capture = AudioCapture()
+    with pytest.raises(AudioCaptureError, match="PortAudio"):
+        capture.start(None, lambda chunk: None)

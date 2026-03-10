@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 logger = logging.getLogger("steno")
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
 
-from steno.audio import AudioCapture, AudioCaptureError
+from steno.audio import AudioCapture, AudioCaptureError, PORTAUDIO_AVAILABLE
 from steno.config import Config, WHISPER_MODELS, SUPPORTED_AUDIO_EXTENSIONS, _detect_hardware, recommend_model
 from steno.i18n import load_locale, get_supported_languages
 from steno.session import Session, list_sessions
@@ -25,6 +25,7 @@ from steno.transcriber import Transcriber
 # In-memory state
 _sessions: dict[str, Session] = {}
 _audio_capture = AudioCapture()
+_download_progress: dict = {}  # Shared download progress state
 
 
 @asynccontextmanager
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
 
-APP_VERSION = "0.1.0-alpha.1"
+APP_VERSION = "0.2.0"
 
 app = FastAPI(title="Steno", version=APP_VERSION, lifespan=lifespan)
 
@@ -67,6 +68,7 @@ async def get_status():
         "active_sessions": active_sessions,
         "recording": _audio_capture.is_recording(),
         "setup_complete": app.state.setup_complete,
+        "portaudio_available": PORTAUDIO_AVAILABLE,
     }
 
 
@@ -74,6 +76,60 @@ async def get_status():
 async def get_version():
     """Return the current app version."""
     return {"version": APP_VERSION}
+
+
+@app.get("/api/update-check")
+async def check_for_update():
+    """Check GitHub Releases for a newer version."""
+    import json as _json
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/AlambritoDito/Steno/releases/latest",
+            headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "Steno"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = _json.loads(resp.read())
+
+        latest_tag = data.get("tag_name", "").lstrip("v")
+        update_available = _compare_versions(latest_tag, APP_VERSION) > 0
+
+        return {
+            "update_available": update_available,
+            "current_version": APP_VERSION,
+            "latest_version": latest_tag,
+            "release_url": data.get("html_url", ""),
+            "release_notes": (data.get("body", "") or "")[:500],
+        }
+    except Exception as e:
+        logger.warning("Update check failed: %s", e)
+        return {"update_available": False, "current_version": APP_VERSION, "error": str(e)}
+
+
+def _compare_versions(a: str, b: str) -> int:
+    """Compare two version strings. Returns >0 if a > b.
+
+    Handles pre-release suffixes: 0.2.0 > 0.1.0-alpha.1
+    """
+    def parse(v: str) -> tuple:
+        # Split on hyphen: "0.1.0-alpha.1" -> ("0.1.0", "alpha.1")
+        parts = v.split("-", 1)
+        nums = tuple(int(x) for x in parts[0].split(".") if x.isdigit())
+        pre = parts[1] if len(parts) > 1 else ""
+        return nums, pre
+
+    a_nums, a_pre = parse(a)
+    b_nums, b_pre = parse(b)
+
+    if a_nums != b_nums:
+        return 1 if a_nums > b_nums else -1
+    # Same numeric version: release (no pre) > pre-release
+    if not a_pre and b_pre:
+        return 1
+    if a_pre and not b_pre:
+        return -1
+    return 0
 
 
 @app.get("/api/devices")
@@ -123,8 +179,9 @@ async def select_model(body: dict):
     transcriber: Transcriber = app.state.transcriber
     transcriber.set_model(model_repo)
 
-    # Download/cache the model (blocking in thread)
-    await asyncio.to_thread(transcriber.download_model)
+    # Download/cache the model with progress tracking
+    _download_progress.clear()
+    await asyncio.to_thread(transcriber.download_model, _download_progress)
 
     # Save settings and track as downloaded
     settings = Config.load_settings()
@@ -201,7 +258,8 @@ async def download_model(body: dict):
     repo = model_info["repo"]
 
     try:
-        await asyncio.to_thread(Transcriber.download_model_by_repo, repo)
+        _download_progress.clear()
+        await asyncio.to_thread(Transcriber.download_model_by_repo, repo, _download_progress)
     except Exception as e:
         logger.error("Model download failed: %s — %s", repo, e)
         raise HTTPException(status_code=500, detail=f"Download failed: {e}")
@@ -215,6 +273,22 @@ async def download_model(body: dict):
         Config.save_settings(settings)
 
     return {"status": "ok", "model_key": model_key}
+
+
+@app.get("/api/download-progress")
+async def get_download_progress():
+    """Poll current model download progress."""
+    if not _download_progress:
+        return {"status": "idle", "bytes_downloaded": 0, "bytes_total": 0, "percent": 0}
+    total = _download_progress.get("bytes_total", 0)
+    downloaded = _download_progress.get("bytes_downloaded", 0)
+    percent = round((downloaded / total * 100), 1) if total > 0 else 0
+    return {
+        "status": _download_progress.get("status", "idle"),
+        "bytes_downloaded": downloaded,
+        "bytes_total": total,
+        "percent": percent,
+    }
 
 
 @app.post("/api/models/active")
@@ -438,6 +512,7 @@ async def delete_session(session_id: str):
     return {"status": "ok", "message": "Session deleted"}
 
 
+@app.post("/api/reset")
 @app.post("/api/debug/reset")
 async def reset_app():
     """Reset the app: delete all sessions and settings, clear in-memory state."""
@@ -471,9 +546,16 @@ async def reset_app():
 
 @app.get("/api/debug/info")
 async def debug_info():
-    """Return debug information about the current app state."""
+    """Return debug information about the current app state.
+
+    Guarded in production builds — returns 403 unless STENO_DEBUG is set.
+    """
+    import os
     import sys
     import platform
+
+    if Config.is_frozen() and not os.environ.get("STENO_DEBUG"):
+        raise HTTPException(status_code=403, detail="Debug endpoint disabled in production")
 
     transcriber: Transcriber = app.state.transcriber
     settings = Config.load_settings()
@@ -611,6 +693,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 })
 
                 # Process chunks in background
+                chunk_task = None
+
                 async def process_chunks():
                     chunk_count = 0
                     while _audio_capture.is_recording():
@@ -642,8 +726,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         if text:
                             logger.info("Transcribed: %s", text[:80])
                             now = datetime.now()
-                            session.add_transcript(text, now)
-                            session.save()
+                            # Use append-only save during recording (Issue #6/#14)
+                            session.append_transcript(text, now)
                             try:
                                 await websocket.send_json({
                                     "type": "transcript",
@@ -658,11 +742,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
                     logger.info("Chunk processing loop ended after %d chunks", chunk_count)
 
-                asyncio.create_task(process_chunks())
+                chunk_task = asyncio.create_task(process_chunks())
 
             elif msg_type == "stop":
                 logger.info("Recording stop requested")
                 _audio_capture.stop()
+                # Wait for chunk processing to finish
+                if chunk_task is not None:
+                    try:
+                        await chunk_task
+                    except asyncio.CancelledError:
+                        pass
+                    chunk_task = None
+                # Write canonical full file now that recording stopped
+                session.save()
                 await websocket.send_json({
                     "type": "status",
                     "recording": False,
@@ -672,6 +765,25 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected for session %s", session_id)
         _audio_capture.stop()
+        if chunk_task is not None:
+            chunk_task.cancel()
+            try:
+                await chunk_task
+            except asyncio.CancelledError:
+                pass
+        # Write canonical file and evict session from memory
+        if session_id in _sessions:
+            _sessions[session_id].save()
+            del _sessions[session_id]
     except Exception as e:
         logger.error("WebSocket error for session %s: %s", session_id, e)
         _audio_capture.stop()
+        if chunk_task is not None:
+            chunk_task.cancel()
+            try:
+                await chunk_task
+            except asyncio.CancelledError:
+                pass
+        if session_id in _sessions:
+            _sessions[session_id].save()
+            del _sessions[session_id]

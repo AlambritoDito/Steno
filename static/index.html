@@ -8,8 +8,8 @@
 
 <!-- Notes editor uses a native textarea for reliability -->
 
-<!-- marked.js for Markdown rendering -->
-<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<!-- marked.js for Markdown rendering (vendored for offline support) -->
+<script src="/static/vendor/marked.min.js"></script>
 
 <style>
 /* ========== Reset & Variables ========== */
@@ -302,6 +302,47 @@ body.electron .header-left {
     background: var(--red);
     box-shadow: 0 0 6px rgba(255, 59, 48, 0.4);
 }
+
+/* System banners (PortAudio warning, update notification) */
+.system-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+}
+.system-banner.hidden { display: none; }
+.banner-error {
+    background: rgba(255, 59, 48, 0.08);
+    color: var(--red);
+}
+.banner-update {
+    background: rgba(0, 122, 255, 0.08);
+    color: var(--blue);
+}
+.banner-action {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 6px;
+    background: var(--blue);
+    color: #fff;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.banner-action:hover { opacity: 0.9; }
+.banner-dismiss {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 0 4px;
+    margin-left: auto;
+}
+.banner-dismiss:hover { color: var(--text-primary); }
 
 .lang-toggle {
     background: var(--bg-secondary);
@@ -1431,10 +1472,10 @@ body.electron .header-left {
 
 <div class="app">
     <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
+    <aside class="sidebar" id="sidebar" role="complementary" aria-label="Sessions">
         <div class="sidebar-header">
             <h2 id="sidebar-title">Sessions</h2>
-            <button class="toolbar-btn" onclick="showNewSessionModal()" title="New" style="font-size:20px;color:var(--accent);">+</button>
+            <button class="toolbar-btn" onclick="showNewSessionModal()" title="New" aria-label="New session" style="font-size:20px;color:var(--accent);">+</button>
         </div>
         <div class="sidebar-list" id="sessions-list">
             <div class="sidebar-empty" id="no-sessions">No sessions yet</div>
@@ -1442,11 +1483,23 @@ body.electron .header-left {
     </aside>
 
     <!-- Main Content -->
-    <div class="main-content">
+    <div class="main-content" role="main">
+        <!-- PortAudio warning banner -->
+        <div class="system-banner banner-error hidden" id="portaudio-banner" role="alert">
+            <span id="portaudio-message">PortAudio library not found. Recording is disabled. Install it with: brew install portaudio</span>
+        </div>
+
+        <!-- Update available banner -->
+        <div class="system-banner banner-update hidden" id="update-banner" role="alert">
+            <span id="update-message"></span>
+            <a id="update-link" href="#" target="_blank" class="banner-action">Download Update</a>
+            <button class="banner-dismiss" onclick="dismissUpdate()" aria-label="Dismiss update notification">&times;</button>
+        </div>
+
         <!-- Header -->
         <header class="header">
             <div class="header-left">
-                <button class="sidebar-toggle" onclick="toggleSidebar()">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">
                     <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                         <rect x="2" y="4" width="14" height="1.5" rx="0.75" fill="currentColor"/>
                         <rect x="2" y="8.25" width="14" height="1.5" rx="0.75" fill="currentColor"/>
@@ -1462,9 +1515,9 @@ body.electron .header-left {
                 <span class="session-clock" id="session-clock">00:00:00</span>
             </div>
             <div class="header-right">
-                <span class="connection-dot" id="connection-dot"></span>
-                <button class="lang-toggle" id="lang-toggle" onclick="toggleLanguage()">EN</button>
-                <button class="toolbar-btn" onclick="showSettingsModal()" title="Settings (⌘,)" style="font-size:15px;padding:4px 6px;">
+                <span class="connection-dot" id="connection-dot" role="status" aria-label="Connection status"></span>
+                <button class="lang-toggle" id="lang-toggle" onclick="toggleLanguage()" aria-label="Toggle language">EN</button>
+                <button class="toolbar-btn" onclick="showSettingsModal()" title="Settings (⌘,)" aria-label="Settings" style="font-size:15px;padding:4px 6px;">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -1484,7 +1537,7 @@ body.electron .header-left {
                     </div>
                     <div class="controls">
                         <select class="model-select" id="model-select" onchange="switchModel(this.value)" title="Transcription model"></select>
-                        <button class="toolbar-btn" onclick="showModelsModal()" title="Manage models" style="font-size:14px;padding:5px 6px;">
+                        <button class="toolbar-btn" onclick="showModelsModal()" title="Manage models" aria-label="Manage models" style="font-size:14px;padding:5px 6px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="3"/>
                                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -1505,7 +1558,7 @@ body.electron .header-left {
                 <div class="audio-level">
                     <div class="audio-level-bar" id="audio-level-bar"></div>
                 </div>
-                <div class="transcript-area" id="transcript-area"></div>
+                <div class="transcript-area" id="transcript-area" aria-live="polite" aria-label="Transcript"></div>
                 <div class="upload-area">
                     <label class="btn-upload" id="audio-upload-label">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1568,7 +1621,7 @@ body.electron .header-left {
 </div>
 
 <!-- Setup / First-Launch Wizard -->
-<div class="setup-overlay hidden" id="setup-overlay">
+<div class="setup-overlay hidden" id="setup-overlay" role="dialog" aria-modal="true" aria-label="Setup wizard">
     <div class="setup-card">
         <!-- Step indicators -->
         <div class="setup-steps-indicator" id="setup-steps-indicator">
@@ -1744,7 +1797,7 @@ body.electron .header-left {
 </div>
 
 <!-- Model Manager Modal -->
-<div class="modal-overlay hidden" id="models-modal-overlay">
+<div class="modal-overlay hidden" id="models-modal-overlay" role="dialog" aria-modal="true" aria-label="Manage models">
     <div class="modal models-modal" style="width:560px">
         <h2 id="models-modal-title">Manage Models</h2>
         <p class="tagline" id="models-modal-subtitle">Download or remove models</p>
@@ -1767,7 +1820,7 @@ body.electron .header-left {
 </div>
 
 <!-- New Session Modal -->
-<div class="modal-overlay hidden" id="session-modal">
+<div class="modal-overlay hidden" id="session-modal" role="dialog" aria-modal="true" aria-label="New session">
     <div class="modal">
         <div style="text-align:center;margin-bottom:12px;">
             <img src="/static/assets/steno-icon.png" alt="Steno" height="64">
@@ -1808,7 +1861,7 @@ body.electron .header-left {
 </div>
 
 <!-- Confirm Delete Dialog -->
-<div class="confirm-overlay hidden" id="confirm-overlay">
+<div class="confirm-overlay hidden" id="confirm-overlay" role="dialog" aria-modal="true" aria-label="Confirmation">
     <div class="confirm-dialog">
         <p id="confirm-message">Are you sure?</p>
         <div class="confirm-actions">
@@ -1819,7 +1872,7 @@ body.electron .header-left {
 </div>
 
 <!-- Settings Modal -->
-<div class="modal-overlay hidden" id="settings-modal-overlay">
+<div class="modal-overlay hidden" id="settings-modal-overlay" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="modal" style="width:600px;max-height:85vh;overflow-y:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
             <h2 id="settings-title">Settings</h2>
@@ -1827,8 +1880,8 @@ body.electron .header-left {
         </div>
         <p class="tagline" id="settings-tagline">Application preferences and debug tools</p>
 
-        <!-- Debug Section -->
-        <div style="margin-top:24px">
+        <!-- Debug Section (hidden by default, toggle with Cmd+Shift+D) -->
+        <div style="margin-top:24px" id="debug-section" class="hidden">
             <h3 style="font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:12px" id="settings-debug-title">Debug</h3>
 
             <!-- Debug Info -->
@@ -1848,6 +1901,7 @@ body.electron .header-left {
                 <button class="btn btn-ghost" onclick="copyDebugLog()" style="font-size:12px">Copy Log</button>
             </div>
         </div>
+        <p id="debug-hint" style="margin-top:16px;font-size:11px;color:var(--text-muted);text-align:center"></p>
 
         <!-- Danger Zone -->
         <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
@@ -1992,6 +2046,15 @@ async function checkSetup() {
     try {
         const resp = await fetch("/api/status");
         const status = await resp.json();
+
+        // Check PortAudio availability
+        if (status.portaudio_available === false) {
+            log("PortAudio not available — disabling recording", "warn");
+            document.getElementById("record-btn").disabled = true;
+            const banner = document.getElementById("portaudio-banner");
+            if (banner) banner.classList.remove("hidden");
+        }
+
         if (!status.setup_complete) {
             showSetup();
         } else {
@@ -2106,11 +2169,19 @@ async function downloadSelectedModel() {
     label.textContent = t.setup_downloading_model || "Downloading model...";
     detail.textContent = t.setup_first_time_notice || "This may take a few minutes on first launch";
 
-    let fakeProgress = 0;
-    const progressInterval = setInterval(() => {
-        fakeProgress += (90 - fakeProgress) * 0.02;
-        bar.style.width = `${Math.min(fakeProgress, 90)}%`;
-    }, 500);
+    // Poll real download progress
+    const progressInterval = setInterval(async () => {
+        try {
+            const pr = await fetch("/api/download-progress");
+            const pd = await pr.json();
+            if (pd.status === "downloading" && pd.bytes_total > 0) {
+                bar.style.width = `${Math.min(pd.percent, 95)}%`;
+                const mbDown = (pd.bytes_downloaded / 1048576).toFixed(0);
+                const mbTotal = (pd.bytes_total / 1048576).toFixed(0);
+                detail.textContent = `${mbDown} / ${mbTotal} MB`;
+            }
+        } catch (_) {}
+    }, 800);
 
     try {
         const resp = await fetch("/api/setup/select-model", {
@@ -2294,7 +2365,7 @@ async function loadModelSelector() {
     } catch (e) {
         log("Failed to load models: " + e.message, "error");
         console.error("Failed to load models:", e);
-        select.innerHTML = '<option>Error loading models</option>';
+        select.innerHTML = `<option>${t.error_loading_models || "Could not load models. Check your connection and try again."}</option>`;
     }
 }
 
@@ -2379,12 +2450,21 @@ async function refreshModelsModal() {
 }
 
 async function deleteModel(modelKey) {
-    if (!confirm(t.model_confirm_delete || "Delete this model? You can re-download it later.")) return;
+    const ok = await showDialog({
+        message: t.model_confirm_delete || "Delete this model? You can re-download it later.",
+        confirmText: t.delete || "Delete",
+        cancelText: t.cancel || "Cancel",
+        danger: true,
+    });
+    if (!ok) return;
 
     try {
         const resp = await fetch(`/api/models/${modelKey}`, { method: "DELETE" });
         if (resp.status === 409) {
-            alert(t.model_cannot_delete_active || "Cannot delete the active model. Switch to another model first.");
+            await showDialog({
+                message: t.model_cannot_delete_active || "Cannot delete the active model. Switch to another model first.",
+                confirmText: "OK",
+            });
             return;
         }
         await refreshModelsModal();
@@ -2407,11 +2487,19 @@ async function downloadAdditionalModel(modelKey) {
     label.textContent = `${t.setup_downloading_model || "Downloading"} ${modelKey}...`;
     bar.style.width = "0%";
 
-    let fakeProgress = 0;
-    const interval = setInterval(() => {
-        fakeProgress += (90 - fakeProgress) * 0.02;
-        bar.style.width = `${Math.min(fakeProgress, 90)}%`;
-    }, 500);
+    // Poll real download progress
+    const interval = setInterval(async () => {
+        try {
+            const pr = await fetch("/api/download-progress");
+            const pd = await pr.json();
+            if (pd.status === "downloading" && pd.bytes_total > 0) {
+                bar.style.width = `${Math.min(pd.percent, 95)}%`;
+                const mbDown = (pd.bytes_downloaded / 1048576).toFixed(0);
+                const mbTotal = (pd.bytes_total / 1048576).toFixed(0);
+                label.textContent = `${t.setup_downloading_model || "Downloading"} ${modelKey}... ${mbDown} / ${mbTotal} MB`;
+            }
+        } catch (_) {}
+    }, 800);
 
     try {
         const resp = await fetch("/api/models/download", {
@@ -2439,7 +2527,7 @@ async function downloadAdditionalModel(modelKey) {
         clearInterval(interval);
         log(`Failed to download model ${modelKey}: ${e.message}`, "error");
         console.error("Failed to download model:", e);
-        label.textContent = (t.setup_download_error || "Download failed") + `: ${e.message}`;
+        label.textContent = t.setup_download_error || "Download failed. Please try again.";
         bar.style.width = "0%";
         setTimeout(() => { progress.classList.remove("active"); }, 5000);
     }
@@ -3017,18 +3105,55 @@ function toggleSidebar() {
 /* ========== Confirm Dialog ========== */
 function showConfirm(message, action) {
     document.getElementById("confirm-message").textContent = message;
+    document.getElementById("confirm-delete-btn").textContent = t.delete || "Delete";
+    document.getElementById("confirm-cancel-btn").textContent = t.cancel || "Cancel";
+    document.getElementById("confirm-cancel-btn").style.display = "";
+    document.getElementById("confirm-delete-btn").className = "btn btn-danger";
     document.getElementById("confirm-overlay").classList.remove("hidden");
     pendingConfirmAction = action;
+    pendingCancelAction = null;
 }
+
+/**
+ * Promise-based dialog for replacing native alert()/confirm().
+ * Options: { message, confirmText, cancelText, danger }
+ * If cancelText is null, only the confirm button is shown (alert-style).
+ */
+function showDialog({ message, confirmText = "OK", cancelText = null, danger = false }) {
+    return new Promise((resolve) => {
+        document.getElementById("confirm-message").textContent = message;
+        const confirmBtn = document.getElementById("confirm-delete-btn");
+        confirmBtn.textContent = confirmText;
+        confirmBtn.className = danger ? "btn btn-danger" : "btn btn-primary";
+
+        const cancelBtn = document.getElementById("confirm-cancel-btn");
+        if (cancelText) {
+            cancelBtn.textContent = cancelText;
+            cancelBtn.style.display = "";
+        } else {
+            cancelBtn.style.display = "none";
+        }
+
+        document.getElementById("confirm-overlay").classList.remove("hidden");
+        pendingConfirmAction = () => resolve(true);
+        pendingCancelAction = () => resolve(false);
+    });
+}
+
+let pendingCancelAction = null;
 
 function hideConfirm() {
     document.getElementById("confirm-overlay").classList.add("hidden");
+    if (pendingCancelAction) pendingCancelAction();
     pendingConfirmAction = null;
+    pendingCancelAction = null;
 }
 
 function confirmAction() {
+    document.getElementById("confirm-overlay").classList.add("hidden");
     if (pendingConfirmAction) pendingConfirmAction();
-    hideConfirm();
+    pendingConfirmAction = null;
+    pendingCancelAction = null;
 }
 
 /* ========== Debug Log System ========== */
@@ -3078,6 +3203,11 @@ function showSettingsModal() {
     document.getElementById("settings-modal-overlay").classList.remove("hidden");
     refreshDebugInfo();
     renderDebugLog();
+    // Show debug hint
+    const hint = document.getElementById("debug-hint");
+    const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+    const shortcut = isMac ? "Cmd+Shift+D" : "Ctrl+Shift+D";
+    hint.textContent = (t.debug_hint || "Press {shortcut} for debug tools").replace("{shortcut}", shortcut);
     log("Settings opened");
 }
 
@@ -3117,8 +3247,21 @@ async function refreshDebugInfo() {
 }
 
 async function resetApp() {
-    if (!confirm(t.settings_reset_confirm_1 || "This will permanently delete ALL sessions and reset all settings. Downloaded models will be preserved.\n\nAre you sure?")) return;
-    if (!confirm(t.settings_reset_confirm_2 || "Last chance — this action CANNOT be undone. Continue?")) return;
+    const ok1 = await showDialog({
+        message: t.settings_reset_confirm_1 || "This will permanently delete ALL sessions and reset all settings. Downloaded models will be preserved.\n\nAre you sure?",
+        confirmText: t.delete || "Delete",
+        cancelText: t.cancel || "Cancel",
+        danger: true,
+    });
+    if (!ok1) return;
+
+    const ok2 = await showDialog({
+        message: t.settings_reset_confirm_2 || "Last chance — this action CANNOT be undone. Continue?",
+        confirmText: t.settings_reset_btn || "Reset App",
+        cancelText: t.cancel || "Cancel",
+        danger: true,
+    });
+    if (!ok2) return;
 
     log("Resetting app...", "warn");
     try {
@@ -3128,7 +3271,7 @@ async function resetApp() {
         }
         if (ws) { ws.close(); ws = null; }
 
-        const resp = await fetch("/api/debug/reset", { method: "POST" });
+        const resp = await fetch("/api/reset", { method: "POST" });
         const data = await resp.json();
         log(`Reset complete: ${data.deleted_sessions} sessions deleted`, "warn");
 
@@ -3153,7 +3296,10 @@ async function resetApp() {
         showSetup();
     } catch (e) {
         log("Reset failed: " + e.message, "error");
-        alert("Reset failed: " + e.message);
+        await showDialog({
+            message: t.error_generic_retry || "Something went wrong. Please try again.",
+            confirmText: "OK",
+        });
     }
 }
 
@@ -3162,6 +3308,39 @@ function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str;
     return div.innerHTML;
+}
+
+/* ========== Update Check ========== */
+async function checkForUpdate() {
+    try {
+        const resp = await fetch("/api/update-check");
+        const data = await resp.json();
+        if (data.update_available) {
+            const dismissed = localStorage.getItem("steno_update_dismissed");
+            if (dismissed === data.latest_version) return; // Already dismissed this version
+
+            const msg = (t.update_available || "Steno {version} is available (you have {current})")
+                .replace("{version}", data.latest_version)
+                .replace("{current}", data.current_version);
+            document.getElementById("update-message").textContent = msg;
+            document.getElementById("update-link").href = data.release_url;
+            document.getElementById("update-link").textContent = t.update_download || "Download Update";
+            document.getElementById("update-banner").classList.remove("hidden");
+            log(`Update available: ${data.latest_version}`);
+        }
+    } catch (e) {
+        // Silently fail — update check is non-critical
+        console.debug("Update check failed:", e);
+    }
+}
+
+function dismissUpdate() {
+    const banner = document.getElementById("update-banner");
+    const msg = document.getElementById("update-message").textContent;
+    // Extract version from message to remember dismissal
+    const match = msg.match(/Steno (\S+)/);
+    if (match) localStorage.setItem("steno_update_dismissed", match[1]);
+    banner.classList.add("hidden");
 }
 
 /* ========== Init ========== */
@@ -3195,17 +3374,28 @@ async function init() {
         loadModelSelector().then(() => log("Model selector loaded")),
     ]);
 
-    // Keyboard shortcut: Cmd+, for settings (browser fallback)
+    // Keyboard shortcuts
     document.addEventListener("keydown", (e) => {
+        // Cmd+, for settings (browser fallback)
         if ((e.metaKey || e.ctrlKey) && e.key === ",") {
             e.preventDefault();
             showSettingsModal();
+        }
+        // Cmd+Shift+D to toggle debug panel
+        if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
+            e.preventDefault();
+            const sec = document.getElementById("debug-section");
+            if (sec) sec.classList.toggle("hidden");
         }
     });
 
     log("Init complete, checking setup...");
     // Check if first launch (setup needed)
     checkSetup();
+
+    // Check for updates (non-blocking)
+    checkForUpdate();
+    setInterval(checkForUpdate, 4 * 60 * 60 * 1000); // Re-check every 4 hours
 }
 
 init();
