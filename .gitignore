@@ -52,3 +52,9 @@ package-lock.json
 
 # PyInstaller
 *.spec
+
+# Claude Code
+.claude/
+
+# Build artifacts
+build/
