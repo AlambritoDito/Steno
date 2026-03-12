@@ -180,6 +180,8 @@ def _download_with_progress(repo: str, progress_state: dict | None = None) -> No
     """Download a model from HuggingFace Hub with optional progress tracking."""
     from huggingface_hub import snapshot_download
 
+    cache_dir = str(Config.models_dir())
+
     if progress_state is not None:
         progress_state.update({"bytes_downloaded": 0, "bytes_total": 0, "status": "downloading"})
 
@@ -215,7 +217,7 @@ def _download_with_progress(repo: str, progress_state: dict | None = None) -> No
             def __exit__(self, *args):
                 self.close()
 
-        snapshot_download(repo, tqdm_class=_ProgressTracker)
+        snapshot_download(repo, cache_dir=cache_dir, tqdm_class=_ProgressTracker)
         progress_state["status"] = "complete"
     else:
-        snapshot_download(repo)
+        snapshot_download(repo, cache_dir=cache_dir)

@@ -95,8 +95,8 @@ async def get_diagnostics():
         "data_dir": str(Config.data_dir()),
         "sessions_path": str(Config.sessions_path()),
         "ssl_cert_file": os.environ.get("SSL_CERT_FILE", "(not set)"),
-        "hf_cache_dir": str(Path.home() / ".cache" / "huggingface" / "hub"),
-        "hf_cache_exists": (Path.home() / ".cache" / "huggingface" / "hub").exists(),
+        "models_dir": str(Config.models_dir()),
+        "models_dir_exists": Config.models_dir().exists(),
     }
     # Check if sounddevice can list devices
     try:
@@ -692,17 +692,24 @@ async def debug_info():
     transcriber: Transcriber = app.state.transcriber
     settings = Config.load_settings()
 
-    # Check HuggingFace cache
-    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+    # Check model cache directories
     cached_models = []
-    if hf_cache.exists():
-        for d in hf_cache.iterdir():
-            if d.is_dir() and d.name.startswith("models--"):
-                size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
-                cached_models.append({
-                    "name": d.name.replace("models--", "").replace("--", "/"),
-                    "size_mb": round(size / (1024 * 1024), 1),
-                })
+    models_dir = Config.models_dir()
+    # Check custom models dir and fallback HF cache
+    for cache_dir in [models_dir, Path.home() / ".cache" / "huggingface" / "hub"]:
+        if cache_dir.exists():
+            for d in cache_dir.iterdir():
+                if d.is_dir() and d.name.startswith("models--"):
+                    name = d.name.replace("models--", "").replace("--", "/")
+                    # Avoid duplicates
+                    if any(m["name"] == name for m in cached_models):
+                        continue
+                    size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+                    cached_models.append({
+                        "name": name,
+                        "size_mb": round(size / (1024 * 1024), 1),
+                        "location": str(cache_dir),
+                    })
 
     return {
         "app_version": APP_VERSION,

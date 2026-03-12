@@ -62,9 +62,13 @@ def _setup_logging():
 _fix_ssl_for_frozen()
 _setup_logging()
 
+# Redirect HuggingFace model cache to ~/Documents/Steno/models/
+# Must be set before any huggingface_hub import so mlx_whisper also uses it.
+from steno.config import Config
+os.environ.setdefault("HF_HUB_CACHE", str(Config.models_dir()))
+
 import uvicorn
 
-from steno.config import Config
 from steno.server import app
 
 
