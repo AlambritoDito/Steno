@@ -52,18 +52,21 @@ def test_add_note():
 
 
 def test_add_image_returns_md_tag():
-    """Returns a string starting with ![."""
+    """Returns a dict with a markdown tag starting with ![."""
     s = Session("Test")
-    tag = s.add_image(b"\x89PNG\r\n", "image/png", "whiteboard")
-    assert tag.startswith("![")
+    result = s.add_image(b"\x89PNG\r\n", "image/png", "whiteboard")
+    assert isinstance(result, dict)
+    assert result["tag"].startswith("![")
+    assert "image_url" in result
 
 
 def test_add_image_embedded_in_markdown():
-    """to_markdown() contains data:image."""
+    """to_markdown() contains the image markdown tag."""
     s = Session("Test")
     s.add_image(b"\x89PNG\r\n", "image/png", "diagram")
     md = s.to_markdown()
-    assert "data:image" in md
+    assert "![diagram]" in md
+    assert "/api/sessions/" in md
 
 
 def test_to_markdown_has_header():
