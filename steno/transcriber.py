@@ -27,12 +27,29 @@ class Transcriber:
         self._loaded = False
         self._status_callback = status_callback
 
-    def set_model(self, model_name: str) -> None:
-        """Change the model (resets loaded state)."""
-        if model_name != self._model_name:
-            self._model_name = model_name
-            self._loaded = False
+    def unload_model(self) -> None:
+        """Explicitly release the current model from memory."""
+        if self._model is not None:
+            del self._model
             self._model = None
+        self._loaded = False
+
+        import gc
+        gc.collect()
+
+        try:
+            import mlx.core
+            mlx.core.metal.clear_cache()
+        except (ImportError, AttributeError):
+            pass
+
+        logger.info("Model unloaded and Metal cache cleared")
+
+    def set_model(self, model_name: str) -> None:
+        """Change the model (unloads previous model first)."""
+        if model_name != self._model_name:
+            self.unload_model()
+            self._model_name = model_name
 
     async def transcribe(self, audio_chunk: np.ndarray) -> str:
         """Transcribe an audio chunk, returning the text string.
@@ -83,28 +100,29 @@ class Transcriber:
             logger.info("Transcription result: %s", text[:100])
         return text
 
-    def download_model(self) -> None:
+    def download_model(self, progress_state: dict | None = None) -> None:
         """Download/cache the model without transcribing (runs in a thread).
 
         Uses huggingface_hub directly to avoid importing mlx native
         extensions, which fail inside PyInstaller bundles.
+
+        If progress_state dict is provided, it will be updated with
+        download progress: {bytes_downloaded, bytes_total, status}.
         """
         logger.info("Downloading model: %s", self._model_name)
         try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(self._model_name, resume_download=True)
+            _download_with_progress(self._model_name, progress_state)
             logger.info("Model download complete: %s", self._model_name)
         except Exception as e:
             logger.error("Model download failed for %s: %s", self._model_name, e)
             raise
 
     @staticmethod
-    def download_model_by_repo(repo: str) -> None:
+    def download_model_by_repo(repo: str, progress_state: dict | None = None) -> None:
         """Download/cache any model by repo name (runs in thread)."""
         logger.info("Downloading model by repo: %s", repo)
         try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(repo, resume_download=True)
+            _download_with_progress(repo, progress_state)
             logger.info("Model download complete: %s", repo)
         except Exception as e:
             logger.error("Model download failed for %s: %s", repo, e)
@@ -156,3 +174,50 @@ class Transcriber:
             "model_name": self._model_name,
             "loaded": self._loaded,
         }
+
+
+def _download_with_progress(repo: str, progress_state: dict | None = None) -> None:
+    """Download a model from HuggingFace Hub with optional progress tracking."""
+    from huggingface_hub import snapshot_download
+
+    cache_dir = str(Config.models_dir())
+
+    if progress_state is not None:
+        progress_state.update({"bytes_downloaded": 0, "bytes_total": 0, "status": "downloading"})
+
+        # Use tqdm_class to intercept progress
+        class _ProgressTracker:
+            """Adapts tqdm-style updates to a shared progress dict."""
+
+            def __init__(self, *args, **kwargs):
+                self.total = kwargs.get("total", 0)
+                self.n = 0
+                if self.total:
+                    progress_state["bytes_total"] += self.total
+
+            def update(self, n=1):
+                self.n += n
+                progress_state["bytes_downloaded"] += n
+
+            def close(self):
+                pass
+
+            def set_postfix_str(self, *args, **kwargs):
+                pass
+
+            def refresh(self, *args, **kwargs):
+                pass
+
+            def clear(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                self.close()
+
+        snapshot_download(repo, cache_dir=cache_dir, tqdm_class=_ProgressTracker)
+        progress_state["status"] = "complete"
+    else:
+        snapshot_download(repo, cache_dir=cache_dir)

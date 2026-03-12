@@ -104,3 +104,22 @@ async def test_api_languages_list(client):
     assert "es" in codes
     assert "English" in names
     assert "Español" in names
+
+
+# --- v0.2.0: new locale keys ---
+
+
+def test_v020_locale_keys_present():
+    """All v0.2.0 locale keys exist in English locale."""
+    en = load_locale("en")
+    v020_keys = [
+        "portaudio_missing",
+        "error_loading_models",
+        "error_generic_retry",
+        "update_available",
+        "update_download",
+        "update_dismiss",
+        "debug_hint",
+    ]
+    for key in v020_keys:
+        assert key in en, f"Missing locale key: {key}"

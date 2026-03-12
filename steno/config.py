@@ -139,6 +139,32 @@ class Config:
         return path
 
     @classmethod
+    def images_path(cls, session_id: str) -> Path:
+        """Return the images directory for a session, creating it if needed."""
+        path = cls.sessions_path() / "images" / session_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
+    def logs_path(cls) -> Path:
+        """Return the logs directory, creating it if needed."""
+        path = cls.data_dir() / "logs"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
+    def models_dir(cls) -> Path:
+        """Return the directory for downloaded models, creating it if needed.
+
+        Uses ~/Documents/Steno/models/ in packaged mode, or
+        a 'models/' subdirectory under data_dir() in dev mode.
+        HuggingFace Hub stores models in its standard layout inside this directory.
+        """
+        path = cls.data_dir() / "models"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
     def static_path(cls) -> Path:
         return cls.project_root() / cls.STATIC_DIR
 
@@ -164,33 +190,42 @@ class Config:
         path = cls.settings_path()
         path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
-    @staticmethod
-    def model_cache_path(repo: str) -> Path | None:
-        """Return the HuggingFace cache directory for a model repo, or None."""
-        # HF stores models in ~/.cache/huggingface/hub/models--{org}--{name}
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        folder_name = "models--" + repo.replace("/", "--")
-        path = cache_dir / folder_name
-        return path if path.exists() else None
+    @classmethod
+    def model_cache_path(cls, repo: str) -> Path | None:
+        """Return the HuggingFace cache directory for a model repo, or None.
 
-    @staticmethod
-    def delete_model_cache(repo: str) -> bool:
-        """Delete a model's HuggingFace cache. Returns True if deleted."""
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+        Checks the custom models directory first, then falls back to the
+        default HuggingFace cache (~/.cache/huggingface/hub/) for backwards
+        compatibility with previously-downloaded models.
+        """
         folder_name = "models--" + repo.replace("/", "--")
-        path = cache_dir / folder_name
-        if path.exists():
-            shutil.rmtree(path)
-            return True
-        return False
+        # Check custom models dir
+        custom = cls.models_dir() / folder_name
+        if custom.exists():
+            return custom
+        # Fallback: default HF cache
+        default = Path.home() / ".cache" / "huggingface" / "hub" / folder_name
+        if default.exists():
+            return default
+        return None
 
-    @staticmethod
-    def model_cache_size_mb(repo: str) -> float:
+    @classmethod
+    def delete_model_cache(cls, repo: str) -> bool:
+        """Delete a model's cache. Returns True if deleted."""
+        folder_name = "models--" + repo.replace("/", "--")
+        deleted = False
+        for cache_dir in [cls.models_dir(), Path.home() / ".cache" / "huggingface" / "hub"]:
+            path = cache_dir / folder_name
+            if path.exists():
+                shutil.rmtree(path)
+                deleted = True
+        return deleted
+
+    @classmethod
+    def model_cache_size_mb(cls, repo: str) -> float:
         """Return the disk size of a model cache in MB."""
-        cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        folder_name = "models--" + repo.replace("/", "--")
-        path = cache_dir / folder_name
-        if not path.exists():
+        path = cls.model_cache_path(repo)
+        if path is None:
             return 0.0
         total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
         return round(total / (1024 * 1024), 1)

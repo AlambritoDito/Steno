@@ -28,6 +28,7 @@ uv run pyinstaller \
     --name steno-server \
     --onedir \
     --noconfirm \
+    --strip \
     --add-data "static:static" \
     --add-data "locales:locales" \
     --hidden-import uvicorn.logging \
@@ -51,13 +52,66 @@ uv run pyinstaller \
     --hidden-import multipart \
     --hidden-import aiofiles \
     --hidden-import websockets \
-    --hidden-import _sounddevice_data \
+    --collect-all mlx \
+    --collect-all mlx_whisper \
+    --collect-all sounddevice \
+    --collect-all _sounddevice_data \
+    --collect-data certifi \
     --hidden-import huggingface_hub \
+    --hidden-import huggingface_hub.utils \
+    --hidden-import huggingface_hub.utils._errors \
+    --hidden-import huggingface_hub.utils._http \
+    --hidden-import requests \
+    --hidden-import urllib3 \
+    --hidden-import httpx \
+    --hidden-import httpcore \
+    --hidden-import httpcore._backends \
+    --hidden-import httpcore._backends.anyio \
+    --hidden-import h11 \
+    --hidden-import anyio._backends._asyncio \
+    --hidden-import socksio \
+    --hidden-import certifi \
+    --hidden-import filelock \
+    --hidden-import tqdm \
+    --hidden-import packaging \
+    --hidden-import packaging.version \
+    --hidden-import packaging.requirements \
+    --exclude-module hf_xet \
+    --exclude-module hf_transfer \
+    --exclude-module tkinter \
+    --exclude-module matplotlib \
+    --exclude-module scipy \
+    --exclude-module pandas \
+    --exclude-module PIL \
+    --exclude-module cv2 \
+    --exclude-module test \
+    --exclude-module unittest \
+    --exclude-module pydoc \
+    --exclude-module xmlrpc \
+    --exclude-module lib2to3 \
     main.py
 
 echo ""
+echo "==> Post-build cleanup..."
+find dist/steno-server -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find dist/steno-server -name '*.pyc' -delete 2>/dev/null || true
+find dist/steno-server -name 'tests' -type d -exec rm -rf {} + 2>/dev/null || true
+
+echo ""
+echo "==> Ad-hoc signing bundled native libraries..."
+echo "    (required for macOS hardened runtime / Gatekeeper)"
+SIGNED=0
+for ext in dylib so; do
+    while IFS= read -r -d '' lib; do
+        codesign --force --sign - "$lib" 2>/dev/null && SIGNED=$((SIGNED + 1))
+    done < <(find dist/steno-server -name "*.$ext" -print0)
+done
+echo "    Signed $SIGNED native libraries"
+
+echo ""
 echo "==> Build complete!"
-echo "    Output: dist/steno-server/"
+BUNDLE_SIZE=$(du -sh dist/steno-server | cut -f1)
+echo "    Output: dist/steno-server/ ($BUNDLE_SIZE)"
 echo "    Binary: dist/steno-server/steno-server"
 echo ""
 echo "    Run 'npm run build:electron' next to create the .dmg"

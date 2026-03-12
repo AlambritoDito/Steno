@@ -36,6 +36,8 @@ htmlcov/
 # Steno
 sessions/*.md
 !sessions/.gitkeep
+models/
+logs/
 *.wav
 *.mp3
 *.ogg
@@ -52,3 +54,9 @@ package-lock.json
 
 # PyInstaller
 *.spec
+
+# Claude Code
+.claude/
+
+# Build artifacts
+build/
