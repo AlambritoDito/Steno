@@ -33,6 +33,17 @@ function startPythonServer() {
         "steno-server",
         "steno-server"
       );
+
+      // Ensure the binary exists before trying to spawn it
+      const fs = require("fs");
+      if (!fs.existsSync(bin)) {
+        reject(new Error(`Backend binary not found at: ${bin}`));
+        return;
+      }
+
+      // Ensure HOME is set (needed for ~/.cache/huggingface model downloads)
+      env.HOME = env.HOME || require("os").homedir();
+
       pythonProcess = spawn(bin, [], { env });
     } else {
       // Development — use uv from the project root
@@ -40,8 +51,14 @@ function startPythonServer() {
       pythonProcess = spawn("uv", ["run", "main.py"], { cwd, env });
     }
 
+    let stderrBuffer = "";
+
     pythonProcess.stdout.on("data", (d) => process.stdout.write(`[py] ${d}`));
-    pythonProcess.stderr.on("data", (d) => process.stderr.write(`[py] ${d}`));
+    pythonProcess.stderr.on("data", (d) => {
+      const text = d.toString();
+      stderrBuffer += text;
+      process.stderr.write(`[py] ${text}`);
+    });
 
     pythonProcess.on("error", (err) => {
       reject(new Error(`Failed to start Python backend: ${err.message}`));
@@ -49,7 +66,10 @@ function startPythonServer() {
 
     pythonProcess.on("exit", (code) => {
       if (code !== null && code !== 0) {
-        reject(new Error(`Python backend exited with code ${code}`));
+        const hint = stderrBuffer.slice(-500);
+        reject(new Error(
+          `Python backend exited with code ${code}\n\nLast output:\n${hint}`
+        ));
       }
     });
 
@@ -228,10 +248,12 @@ app.whenReady().then(async () => {
     await startPythonServer();
     createWindow();
   } catch (err) {
-    dialog.showErrorBox(
-      "Steno",
-      `Could not start the transcription engine.\n\n${err.message}`
-    );
+    const message = err.message || String(err);
+    let detail = `Could not start the transcription engine.\n\n${message}`;
+    if (app.isPackaged) {
+      detail += `\n\nResources path: ${process.resourcesPath}`;
+    }
+    dialog.showErrorBox("Steno", detail);
     app.quit();
   }
 });

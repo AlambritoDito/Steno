@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 logger = logging.getLogger("steno")
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
 
-from steno.audio import AudioCapture, AudioCaptureError, PORTAUDIO_AVAILABLE
+from steno.audio import AudioCapture, AudioCaptureError, WavWriter, PORTAUDIO_AVAILABLE, _portaudio_error
 from steno.config import Config, WHISPER_MODELS, SUPPORTED_AUDIO_EXTENSIONS, _detect_hardware, recommend_model
 from steno.i18n import load_locale, get_supported_languages
 from steno.session import Session, list_sessions
@@ -69,6 +69,7 @@ async def get_status():
         "recording": _audio_capture.is_recording(),
         "setup_complete": app.state.setup_complete,
         "portaudio_available": PORTAUDIO_AVAILABLE,
+        "portaudio_error": _portaudio_error if not PORTAUDIO_AVAILABLE else None,
     }
 
 
@@ -76,6 +77,36 @@ async def get_status():
 async def get_version():
     """Return the current app version."""
     return {"version": APP_VERSION}
+
+
+@app.get("/api/diagnostics")
+async def get_diagnostics():
+    """Return diagnostic info for debugging packaged-app issues."""
+    import sys
+    import os
+    diag = {
+        "frozen": getattr(sys, "frozen", False),
+        "platform": sys.platform,
+        "python_version": sys.version,
+        "executable": sys.executable,
+        "portaudio_available": PORTAUDIO_AVAILABLE,
+        "steno_electron": bool(os.environ.get("STENO_ELECTRON")),
+        "home": str(Path.home()),
+        "data_dir": str(Config.data_dir()),
+        "sessions_path": str(Config.sessions_path()),
+        "ssl_cert_file": os.environ.get("SSL_CERT_FILE", "(not set)"),
+        "hf_cache_dir": str(Path.home() / ".cache" / "huggingface" / "hub"),
+        "hf_cache_exists": (Path.home() / ".cache" / "huggingface" / "hub").exists(),
+    }
+    # Check if sounddevice can list devices
+    try:
+        devices = AudioCapture.list_devices()
+        diag["audio_devices"] = len(devices)
+        diag["audio_error"] = None
+    except Exception as e:
+        diag["audio_devices"] = 0
+        diag["audio_error"] = str(e)
+    return diag
 
 
 @app.get("/api/update-check")
@@ -181,7 +212,11 @@ async def select_model(body: dict):
 
     # Download/cache the model with progress tracking
     _download_progress.clear()
-    await asyncio.to_thread(transcriber.download_model, _download_progress)
+    try:
+        await asyncio.to_thread(transcriber.download_model, _download_progress)
+    except Exception as e:
+        logger.error("Model download failed: %s — %s", model_repo, e)
+        raise HTTPException(status_code=500, detail=f"Download failed: {e}")
 
     # Save settings and track as downloaded
     settings = Config.load_settings()
@@ -471,9 +506,25 @@ async def add_image(session_id: str, file: UploadFile = File(...), caption: str 
 
     image_data = await file.read()
     mime_type = file.content_type or "image/png"
-    tag = session.add_image(image_data, mime_type, caption)
+    result = session.add_image(image_data, mime_type, caption)
     session.save()
-    return {"status": "ok", "tag": tag}
+    return {"status": "ok", "tag": result["tag"], "image_url": result["image_url"]}
+
+
+@app.get("/api/sessions/{session_id}/images/{filename}")
+async def get_session_image(session_id: str, filename: str):
+    """Serve an image file from a session."""
+    images_dir = Config.images_path(session_id)
+    image_path = images_dir / filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    # Determine media type from extension
+    ext = Path(filename).suffix.lower()
+    media_types = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+    }
+    return FileResponse(image_path, media_type=media_types.get(ext, "image/png"))
 
 
 @app.post("/api/sessions/{session_id}/export")
@@ -496,9 +547,73 @@ async def export_session(session_id: str):
     )
 
 
+@app.get("/api/sessions/{session_id}/audio")
+async def get_session_audio(session_id: str):
+    """Serve the saved WAV file for a session."""
+    sessions_dir = Config.sessions_path()
+    wav_path = sessions_dir / f"{session_id}.wav"
+    if not wav_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+    return FileResponse(
+        wav_path,
+        media_type="audio/wav",
+        filename=f"{session_id}.wav",
+    )
+
+
+@app.post("/api/sessions/{session_id}/retranscribe")
+async def retranscribe_session(session_id: str, body: dict):
+    """Re-transcribe a session's saved audio with a (potentially different) model."""
+    # Load the session
+    session = _sessions.get(session_id)
+    if session is None:
+        try:
+            session = Session.load(session_id)
+            _sessions[session_id] = session
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    # Check that audio exists
+    wav_path = session.audio_path()
+    if not wav_path.exists():
+        raise HTTPException(status_code=404, detail="No saved audio for this session")
+
+    # Optionally use a different model
+    model_key = body.get("model_key")
+    if model_key:
+        if model_key not in WHISPER_MODELS:
+            raise HTTPException(status_code=422, detail="Invalid model key")
+        model_repo = WHISPER_MODELS[model_key]["repo"]
+        retranscriber = Transcriber(model_name=model_repo)
+    else:
+        retranscriber = app.state.transcriber
+
+    try:
+        segments = await asyncio.to_thread(retranscriber.transcribe_file, str(wav_path))
+
+        # Clear existing transcript entries and replace with new ones
+        session._entries = [e for e in session._entries if e["type"] != "transcript"]
+        for seg in segments:
+            if seg["text"]:
+                minutes = int(seg["start"]) // 60
+                seconds = int(seg["start"]) % 60
+                ts = session.created_at.replace(
+                    minute=minutes % 60, second=seconds
+                )
+                session.add_transcript(seg["text"], ts)
+
+        session.save()
+        return {"status": "ok", "segments": segments, "count": len(segments)}
+    except Exception as e:
+        logger.error("Re-transcription failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Re-transcription failed: {e}")
+
+
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """Delete a session."""
+    """Delete a session and its associated files (audio, images)."""
+    import shutil
+
     sessions_dir = Config.sessions_path()
     path = sessions_dir / f"{session_id}.md"
 
@@ -507,6 +622,16 @@ async def delete_session(session_id: str):
 
     if path.exists():
         path.unlink()
+
+    # Clean up WAV file
+    wav_path = sessions_dir / f"{session_id}.wav"
+    if wav_path.exists():
+        wav_path.unlink()
+
+    # Clean up images directory
+    images_dir = sessions_dir / "images" / session_id
+    if images_dir.exists():
+        shutil.rmtree(images_dir)
 
     _sessions.pop(session_id, None)
     return {"status": "ok", "message": "Session deleted"}
@@ -523,12 +648,19 @@ async def reset_app():
     # Clear in-memory sessions
     _sessions.clear()
 
-    # Delete all session files
+    # Delete all session files (md + wav)
+    import shutil as _shutil
     sessions_dir = Config.sessions_path()
     deleted_sessions = 0
     for f in sessions_dir.glob("*.md"):
         f.unlink()
         deleted_sessions += 1
+    for f in sessions_dir.glob("*.wav"):
+        f.unlink()
+    # Delete all session images
+    images_dir = sessions_dir / "images"
+    if images_dir.exists():
+        _shutil.rmtree(images_dir)
 
     # Reset settings (keep setup_complete=False to trigger setup wizard)
     Config.save_settings({})
@@ -643,6 +775,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
     transcriber._status_callback = status_callback
 
+    wav_writer = None
+    chunk_task = None
+    recording_start_time = None
+
     try:
         while True:
             data = await websocket.receive_json()
@@ -654,7 +790,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             elif msg_type == "start":
                 device_index = data.get("device_index")
                 language = data.get("language")  # None = auto-detect
-                logger.info("Recording start requested, device_index=%s, language=%s", device_index, language)
+                mode = data.get("mode", "full")  # "full" or "light"
+                logger.info("Recording start requested, device_index=%s, language=%s, mode=%s", device_index, language, mode)
 
                 # Apply transcription language
                 transcriber._language = language
@@ -667,6 +804,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     })
                     continue
 
+                # Create WAV writer for audio archival
+                wav_path = session.audio_path()
+                wav_writer = WavWriter(wav_path, sample_rate=Config.SAMPLE_RATE)
+                recording_start_time = datetime.now()
+
                 chunk_queue: asyncio.Queue = asyncio.Queue()
                 loop = asyncio.get_event_loop()
 
@@ -676,10 +818,11 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     loop.call_soon_threadsafe(chunk_queue.put_nowait, chunk)
 
                 try:
-                    _audio_capture.start(device_index, on_chunk)
-                    logger.info("Audio capture started successfully")
+                    _audio_capture.start(device_index, on_chunk, wav_writer=wav_writer)
+                    logger.info("Audio capture started successfully (mode=%s)", mode)
                 except AudioCaptureError as e:
                     logger.error("Audio capture failed: %s", e)
+                    wav_writer.close()
                     await websocket.send_json({
                         "type": "error",
                         "message": str(e),
@@ -690,63 +833,107 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "type": "status",
                     "recording": True,
                     "model_loaded": transcriber.is_loaded(),
+                    "mode": mode,
                 })
 
                 # Process chunks in background
                 chunk_task = None
 
-                async def process_chunks():
-                    chunk_count = 0
-                    while _audio_capture.is_recording():
-                        try:
-                            chunk = await asyncio.wait_for(
-                                chunk_queue.get(), timeout=1.0
-                            )
-                        except asyncio.TimeoutError:
-                            continue
-
-                        chunk_count += 1
-                        import numpy as np
-                        rms = float(np.sqrt(np.mean(chunk**2)))
-                        logger.info("Chunk #%d received, RMS=%.4f, len=%d", chunk_count, rms, len(chunk))
-
-                        try:
-                            text = await transcriber.transcribe(chunk)
-                        except Exception as e:
-                            logger.error("Transcription error on chunk #%d: %s", chunk_count, e)
+                if mode == "light":
+                    # Light mode: record only, no transcription
+                    async def process_chunks():
+                        chunk_count = 0
+                        while _audio_capture.is_recording():
                             try:
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": f"Transcription error: {e}",
-                                })
-                            except Exception:
+                                chunk = await asyncio.wait_for(
+                                    chunk_queue.get(), timeout=1.0
+                                )
+                            except asyncio.TimeoutError:
                                 pass
-                            continue
+                            chunk_count += 1
 
-                        if text:
-                            logger.info("Transcribed: %s", text[:80])
-                            now = datetime.now()
-                            # Use append-only save during recording (Issue #6/#14)
-                            session.append_transcript(text, now)
+                            # Send elapsed time updates every second
+                            elapsed = (datetime.now() - recording_start_time).total_seconds()
                             try:
                                 await websocket.send_json({
-                                    "type": "transcript",
-                                    "text": text,
-                                    "timestamp": now.strftime("%H:%M:%S"),
-                                    "is_final": True,
+                                    "type": "elapsed",
+                                    "seconds": int(elapsed),
                                 })
                             except Exception:
                                 break
-                        else:
-                            logger.debug("Chunk #%d was silence (RMS=%.4f)", chunk_count, rms)
 
-                    logger.info("Chunk processing loop ended after %d chunks", chunk_count)
+                        logger.info("Light mode recording ended after %d chunks", chunk_count)
+                else:
+                    # Full mode: transcribe + save WAV
+                    async def process_chunks():
+                        chunk_count = 0
+                        while _audio_capture.is_recording():
+                            try:
+                                chunk = await asyncio.wait_for(
+                                    chunk_queue.get(), timeout=1.0
+                                )
+                            except asyncio.TimeoutError:
+                                continue
+
+                            chunk_count += 1
+                            import numpy as np
+                            rms = float(np.sqrt(np.mean(chunk**2)))
+                            logger.info("Chunk #%d received, RMS=%.4f, len=%d", chunk_count, rms, len(chunk))
+
+                            try:
+                                text = await transcriber.transcribe(chunk)
+                            except Exception as e:
+                                logger.error("Transcription error on chunk #%d: %s", chunk_count, e)
+                                try:
+                                    await websocket.send_json({
+                                        "type": "error",
+                                        "message": f"Transcription error: {e}",
+                                    })
+                                except Exception:
+                                    pass
+                                continue
+
+                            if text:
+                                logger.info("Transcribed: %s", text[:80])
+                                now = datetime.now()
+                                # Use append-only save during recording (Issue #6/#14)
+                                session.append_transcript(text, now)
+                                try:
+                                    await websocket.send_json({
+                                        "type": "transcript",
+                                        "text": text,
+                                        "timestamp": now.strftime("%H:%M:%S"),
+                                        "is_final": True,
+                                    })
+                                except Exception:
+                                    break
+                            else:
+                                logger.debug("Chunk #%d was silence (RMS=%.4f)", chunk_count, rms)
+
+                        logger.info("Chunk processing loop ended after %d chunks", chunk_count)
 
                 chunk_task = asyncio.create_task(process_chunks())
+
+            elif msg_type == "note":
+                # Timestamped note (used in light mode)
+                note_text = data.get("text", "")
+                elapsed = data.get("elapsed_seconds")
+                if note_text.strip():
+                    session.add_note(note_text, elapsed_seconds=elapsed)
+                    session.save()
+                    await websocket.send_json({
+                        "type": "note_saved",
+                        "text": note_text,
+                        "elapsed_seconds": elapsed,
+                    })
 
             elif msg_type == "stop":
                 logger.info("Recording stop requested")
                 _audio_capture.stop()
+                # Close the WAV writer
+                if wav_writer is not None:
+                    wav_writer.close()
+                    wav_writer = None
                 # Wait for chunk processing to finish
                 if chunk_task is not None:
                     try:
@@ -760,11 +947,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     "type": "status",
                     "recording": False,
                     "model_loaded": transcriber.is_loaded(),
+                    "has_audio": session.has_audio(),
                 })
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected for session %s", session_id)
         _audio_capture.stop()
+        if wav_writer is not None:
+            wav_writer.close()
         if chunk_task is not None:
             chunk_task.cancel()
             try:
@@ -778,6 +968,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error("WebSocket error for session %s: %s", session_id, e)
         _audio_capture.stop()
+        if wav_writer is not None:
+            wav_writer.close()
         if chunk_task is not None:
             chunk_task.cancel()
             try:

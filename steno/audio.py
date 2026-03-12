@@ -1,6 +1,8 @@
 """Microphone audio capture for Steno."""
 
 import logging
+import wave
+from pathlib import Path
 
 import numpy as np
 
@@ -20,6 +22,37 @@ except OSError as e:
     logger.error("PortAudio not available: %s", e)
 
 
+class WavWriter:
+    """Incrementally writes audio chunks to a WAV file."""
+
+    def __init__(self, path: Path, sample_rate: int = 16000):
+        self._path = path
+        self._file = wave.open(str(path), "wb")
+        self._file.setnchannels(1)
+        self._file.setsampwidth(2)  # 16-bit
+        self._file.setframerate(sample_rate)
+        self._closed = False
+        logger.info("WavWriter opened: %s", path)
+
+    def write(self, chunk: np.ndarray) -> None:
+        """Write a float32 audio chunk as 16-bit PCM."""
+        if self._closed:
+            return
+        pcm = (np.clip(chunk, -1.0, 1.0) * 32767).astype(np.int16)
+        self._file.writeframes(pcm.tobytes())
+
+    def close(self) -> None:
+        """Finalize and close the WAV file."""
+        if not self._closed:
+            self._file.close()
+            self._closed = True
+            logger.info("WavWriter closed: %s", self._path)
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+
 class AudioCaptureError(Exception):
     """Raised when audio capture fails."""
 
@@ -35,6 +68,7 @@ class AudioCapture:
         self._overlap_samples = int(Config.SAMPLE_RATE * Config.OVERLAP_DURATION)
         self._buffer: list[np.ndarray] = []
         self._callback = None
+        self._wav_writer: WavWriter | None = None
 
     @staticmethod
     def list_devices() -> list[dict]:
@@ -54,11 +88,12 @@ class AudioCapture:
                 })
         return result
 
-    def start(self, device_index: int | None, callback) -> None:
+    def start(self, device_index: int | None, callback, wav_writer: WavWriter | None = None) -> None:
         """Start capturing audio.
 
         Calls callback(chunk: numpy.ndarray) for each chunk
         (float32, mono, 16kHz).
+        If wav_writer is provided, raw audio frames are written to the WAV file.
         """
         if not PORTAUDIO_AVAILABLE:
             raise AudioCaptureError(
@@ -69,6 +104,7 @@ class AudioCapture:
             return
 
         self._callback = callback
+        self._wav_writer = wav_writer
         self._buffer = []
         self._overlap_buffer = None
 
@@ -96,6 +132,14 @@ class AudioCapture:
         if status:
             logger.warning("Audio stream status: %s", status)
         audio = indata[:, 0].copy()  # mono
+
+        # Write raw audio to WAV before overlap processing
+        if self._wav_writer is not None:
+            try:
+                self._wav_writer.write(audio)
+            except Exception as e:
+                logger.error("WavWriter error: %s", e)
+
         self._buffer.append(audio)
 
         total = sum(len(b) for b in self._buffer)

@@ -52,8 +52,30 @@ uv run pyinstaller \
     --hidden-import multipart \
     --hidden-import aiofiles \
     --hidden-import websockets \
-    --hidden-import _sounddevice_data \
+    --collect-all sounddevice \
+    --collect-all _sounddevice_data \
+    --collect-data certifi \
     --hidden-import huggingface_hub \
+    --hidden-import huggingface_hub.utils \
+    --hidden-import huggingface_hub.utils._errors \
+    --hidden-import huggingface_hub.utils._http \
+    --hidden-import requests \
+    --hidden-import urllib3 \
+    --hidden-import httpx \
+    --hidden-import httpcore \
+    --hidden-import httpcore._backends \
+    --hidden-import httpcore._backends.anyio \
+    --hidden-import h11 \
+    --hidden-import anyio._backends._asyncio \
+    --hidden-import socksio \
+    --hidden-import certifi \
+    --hidden-import filelock \
+    --hidden-import tqdm \
+    --hidden-import packaging \
+    --hidden-import packaging.version \
+    --hidden-import packaging.requirements \
+    --exclude-module hf_xet \
+    --exclude-module hf_transfer \
     --exclude-module tkinter \
     --exclude-module matplotlib \
     --exclude-module scipy \

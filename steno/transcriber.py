@@ -215,7 +215,7 @@ def _download_with_progress(repo: str, progress_state: dict | None = None) -> No
             def __exit__(self, *args):
                 self.close()
 
-        snapshot_download(repo, resume_download=True, tqdm_class=_ProgressTracker)
+        snapshot_download(repo, tqdm_class=_ProgressTracker)
         progress_state["status"] = "complete"
     else:
-        snapshot_download(repo, resume_download=True)
+        snapshot_download(repo)

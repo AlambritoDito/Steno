@@ -1450,6 +1450,168 @@ body.electron .header-left {
 #debug-log .log-entry.warn { color: var(--yellow); }
 #debug-log .log-entry.info { color: var(--accent); }
 
+/* ========== Light Mode Timer ========== */
+.light-mode-timer {
+    font-family: var(--font-mono);
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-align: center;
+    padding: 40px 20px 20px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+}
+
+.light-mode-notes {
+    padding: 16px 20px;
+    display: flex;
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.light-mode-notes input {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-strong);
+    color: var(--text-primary);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-family: var(--font-sans);
+    outline: none;
+}
+
+.light-mode-notes input:focus {
+    border-color: var(--accent);
+}
+
+.light-note-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    animation: slideUp 300ms cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.light-note-entry .elapsed-stamp {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+    padding: 2px 6px;
+    background: var(--accent-bg);
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.light-note-entry .elapsed-stamp:hover {
+    background: var(--accent-bg-hover);
+}
+
+.light-note-entry .note-text {
+    font-size: 14px;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+/* ========== Audio Player ========== */
+.audio-player-container {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    background: var(--bg-secondary);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.audio-player-container audio {
+    flex: 1;
+    height: 36px;
+    border-radius: var(--radius-sm);
+}
+
+.audio-player-container .audio-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+/* ========== Audio Badge ========== */
+.audio-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-left: 4px;
+}
+
+/* ========== Mode Toggle ========== */
+.mode-toggle {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.mode-toggle button {
+    flex: 1;
+    background: var(--bg-secondary);
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    font-family: var(--font-sans);
+}
+
+.mode-toggle button.active {
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.mode-toggle button:hover:not(.active) {
+    background: var(--bg-tertiary);
+}
+
+/* ========== Re-transcribe ========== */
+.retranscribe-bar {
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.retranscribe-bar select {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 5px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-family: var(--font-sans);
+    outline: none;
+}
+
 /* ========== Scrollbar ========== */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1559,6 +1721,22 @@ body.electron .header-left {
                     <div class="audio-level-bar" id="audio-level-bar"></div>
                 </div>
                 <div class="transcript-area" id="transcript-area" aria-live="polite" aria-label="Transcript"></div>
+                <!-- Light mode: note input with timestamp -->
+                <div class="light-mode-notes" id="light-mode-notes" style="display:none">
+                    <input type="text" id="light-note-input" placeholder="Take a timestamped note..." onkeydown="if(event.key==='Enter')addLightNote()">
+                    <button class="btn btn-primary" onclick="addLightNote()" style="padding:7px 14px;font-size:13px" id="light-note-btn">Add Note</button>
+                </div>
+                <!-- Audio player (shown after recording or when viewing session with audio) -->
+                <div class="audio-player-container" id="audio-player-container" style="display:none">
+                    <span class="audio-label" id="audio-label">Audio Recording</span>
+                    <audio id="session-audio-player" controls preload="none"></audio>
+                </div>
+                <!-- Re-transcribe bar -->
+                <div class="retranscribe-bar" id="retranscribe-bar" style="display:none">
+                    <select id="retranscribe-model-select"></select>
+                    <button class="btn btn-primary" onclick="retranscribeSession()" id="retranscribe-btn" style="padding:5px 14px;font-size:12px">Re-transcribe</button>
+                    <span id="retranscribe-status" style="font-size:12px;color:var(--text-secondary)"></span>
+                </div>
                 <div class="upload-area">
                     <label class="btn-upload" id="audio-upload-label">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1850,6 +2028,13 @@ body.electron .header-left {
                 <option value="zh">&#x4E2D;&#x6587;</option>
             </select>
         </div>
+        <div class="form-group">
+            <label data-i18n="session_mode" for="modal-session-mode">Session mode</label>
+            <div class="mode-toggle" id="modal-mode-toggle">
+                <button class="active" data-mode="full" onclick="selectSessionMode('full')" id="mode-btn-full">Full Transcription</button>
+                <button data-mode="light" onclick="selectSessionMode('light')" id="mode-btn-light">Light (Record Only)</button>
+            </div>
+        </div>
         <div class="modal-actions">
             <button class="btn btn-primary" onclick="startSession()" id="start-session-btn">Start Session</button>
         </div>
@@ -1965,6 +2150,10 @@ let clockInterval = null;
 let sessionStartTime = null;
 let pendingConfirmAction = null;
 let selectedModelKey = null;
+let WHISPER_MODELS_CACHE = {};
+let sessionMode = "full";  // "full" or "light"
+let elapsedSeconds = 0;
+let elapsedTimerInterval = null;
 
 /* ========== i18n ========== */
 async function loadI18n(lang) {
@@ -2024,6 +2213,13 @@ function applyI18n() {
     // Auto-detect option in transcription language
     const transLangSelect = el("setup-transcription-lang");
     if (transLangSelect && transLangSelect.options[0]) transLangSelect.options[0].textContent = t.setup_transcription_auto || "Auto-detect";
+
+    // Light mode / audio strings
+    if (el("mode-btn-full")) el("mode-btn-full").textContent = t.mode_full || "Full Transcription";
+    if (el("mode-btn-light")) el("mode-btn-light").textContent = t.mode_light || "Light (Record Only)";
+    if (el("light-note-btn")) el("light-note-btn").textContent = t.add_note || "Add Note";
+    if (el("retranscribe-btn")) el("retranscribe-btn").textContent = t.retranscribe || "Re-transcribe";
+    if (el("audio-label")) el("audio-label").textContent = t.audio_player || "Audio Recording";
 
     // Update lang toggle button
     document.getElementById("lang-toggle").textContent = currentLang.toUpperCase();
@@ -2108,7 +2304,10 @@ async function initModelStep() {
         const list = document.getElementById("model-list");
         list.innerHTML = "";
 
+        WHISPER_MODELS_CACHE = {};
         hw.models.forEach(m => {
+            WHISPER_MODELS_CACHE[m.key] = m;
+
             const opt = document.createElement("div");
             opt.className = "model-option" + (m.recommended ? " selected" : "") + (!m.compatible ? " exceeds-ram" : "");
             opt.dataset.key = m.key;
@@ -2192,7 +2391,11 @@ async function downloadSelectedModel() {
 
         clearInterval(progressInterval);
 
-        if (!resp.ok) throw new Error("Download failed");
+        if (!resp.ok) {
+            let detail = "Download failed";
+            try { const body = await resp.json(); detail = body.detail || detail; } catch (_) {}
+            throw new Error(detail);
+        }
 
         bar.style.width = "100%";
         label.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> ${t.setup_download_complete || "Download complete"}`;
@@ -2216,8 +2419,26 @@ async function downloadSelectedModel() {
     } catch (e) {
         clearInterval(progressInterval);
         console.error("Failed to download model:", e);
+
+        const errorDetail = e.message && e.message !== "Download failed" ? e.message : "";
+
         label.textContent = t.setup_download_error || "Download failed. Please try again.";
         bar.style.width = "0%";
+
+        // Show error detail + manual download link
+        const modelInfo = WHISPER_MODELS_CACHE[selectedModelKey];
+        const repo = modelInfo?.repo || "";
+        const hfUrl = repo ? `https://huggingface.co/${repo}/tree/main` : "https://huggingface.co";
+        detail.innerHTML = `
+            ${errorDetail ? `<div style="margin-bottom:8px;font-size:11px;color:var(--text-secondary)">${escapeHtml(errorDetail)}</div>` : ""}
+            <div style="margin-top:8px">
+                <a href="${hfUrl}" target="_blank" rel="noopener"
+                   style="color:var(--accent);text-decoration:underline;font-size:12px">
+                    ${t.setup_download_manual || "Download manually in browser"}
+                </a>
+            </div>
+        `;
+
         btn.disabled = false;
         btn.textContent = t.setup_retry || "Retry";
     }
@@ -2661,8 +2882,9 @@ async function loadSessions() {
         sessions.forEach(s => {
             const item = document.createElement("div");
             item.className = "sidebar-item";
+            const audioBadge = s.has_audio ? `<span class="audio-badge"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8.5v7a4.49 4.49 0 0 0 2.5-3.5z"/></svg>${t.has_audio || "Audio"}</span>` : "";
             item.innerHTML = `
-                <div class="session-name">${escapeHtml(s.name)}</div>
+                <div class="session-name">${escapeHtml(s.name)}${audioBadge}</div>
                 <div class="session-date">${s.created_at ? new Date(s.created_at).toLocaleDateString() : ""} · ${s.size_kb} KB</div>
             `;
             item.onclick = () => viewSession(s.id);
@@ -2715,6 +2937,18 @@ async function viewSession(id) {
         const previewEl = document.getElementById("preview-container");
         previewEl.innerHTML = marked.parse(md);
         showPreview(true);
+
+        // Check if this session has audio and show player
+        const audioResp = await fetch(`/api/sessions/${id}/audio`, { method: "HEAD" }).catch(() => null);
+        if (audioResp && audioResp.ok) {
+            showAudioPlayer(id);
+            showRetranscribeBar(id);
+            // Store session id for retranscribe
+            currentSessionId = id;
+        } else {
+            hideAudioPlayer();
+            document.getElementById("retranscribe-bar").style.display = "none";
+        }
     } catch (e) {
         console.error("Failed to view session:", e);
     }
@@ -2757,8 +2991,20 @@ async function startSession() {
         document.getElementById("record-btn").disabled = false;
         document.getElementById("export-btn").disabled = false;
 
-        // Clear previous transcript
-        document.getElementById("transcript-area").innerHTML = "";
+        // Clear previous transcript and reset UI
+        const transcriptArea = document.getElementById("transcript-area");
+        transcriptArea.innerHTML = "";
+        hideAudioPlayer();
+        document.getElementById("retranscribe-bar").style.display = "none";
+        document.getElementById("light-mode-notes").style.display = "none";
+
+        // In light mode, show the large timer instead of transcript
+        if (sessionMode === "light") {
+            const timerDiv = document.createElement("div");
+            timerDiv.className = "light-mode-timer";
+            timerDiv.textContent = "00:00:00";
+            transcriptArea.appendChild(timerDiv);
+        }
 
         // Start clock
         sessionStartTime = new Date();
@@ -2835,6 +3081,27 @@ function handleWSMessage(msg) {
             log(`Status update: recording=${msg.recording}, model_loaded=${msg.model_loaded}`);
             updateStatusUI();
             updateRecordButton();
+            // When recording stops and audio is available, show player
+            if (!msg.recording && msg.has_audio && currentSessionId) {
+                showAudioPlayer(currentSessionId);
+                showRetranscribeBar(currentSessionId);
+                // Hide light mode UI
+                document.getElementById("light-mode-notes").style.display = "none";
+            }
+            break;
+        case "elapsed":
+            // Light mode: update elapsed timer
+            elapsedSeconds = msg.seconds;
+            const timerEl = document.getElementById("transcript-area").querySelector(".light-mode-timer");
+            if (timerEl) {
+                const h = String(Math.floor(msg.seconds / 3600)).padStart(2, "0");
+                const m = String(Math.floor((msg.seconds % 3600) / 60)).padStart(2, "0");
+                const s = String(msg.seconds % 60).padStart(2, "0");
+                timerEl.textContent = `${h}:${m}:${s}`;
+            }
+            break;
+        case "note_saved":
+            log(`Note saved at elapsed=${msg.elapsed_seconds}s`);
             break;
         case "model_loading":
             log("Model is loading...", "warn");
@@ -2888,8 +3155,15 @@ function toggleRecording() {
         const deviceIndex = parseInt(document.getElementById("mic-select").value);
         const devIdx = isNaN(deviceIndex) ? null : deviceIndex;
         const transLang = localStorage.getItem("steno_transcription_lang") || "";
-        log(`Starting recording with device_index=${devIdx}, language=${transLang || "auto"}`);
-        ws.send(JSON.stringify({ type: "start", device_index: devIdx, language: transLang || null }));
+        log(`Starting recording with device_index=${devIdx}, language=${transLang || "auto"}, mode=${sessionMode}`);
+        ws.send(JSON.stringify({ type: "start", device_index: devIdx, language: transLang || null, mode: sessionMode }));
+
+        // For light mode, show the note input and start elapsed timer
+        if (sessionMode === "light") {
+            elapsedSeconds = 0;
+            document.getElementById("light-mode-notes").style.display = "flex";
+            document.getElementById("light-note-input").placeholder = t.light_mode_note_placeholder || "Take a timestamped note...";
+        }
     }
 }
 
@@ -2914,7 +3188,9 @@ function updateStatusUI() {
         text.textContent = t.no_session || "No active session";
     } else if (isRecording) {
         dot.className = "dot green";
-        text.textContent = t.listening || "Listening";
+        text.textContent = sessionMode === "light"
+            ? (t.light_mode_recording || "Recording")
+            : (t.listening || "Listening");
     } else {
         dot.className = "dot red";
         text.textContent = t.paused || "Paused";
@@ -3052,16 +3328,21 @@ async function uploadImageFile(file) {
         });
         const data = await resp.json();
 
-        // Insert the markdown tag into the textarea
-        const textarea = document.getElementById("notes-textarea");
-        if (textarea && data.tag) {
-            const pos = textarea.selectionStart;
-            const before = textarea.value.substring(0, pos);
-            const after = textarea.value.substring(pos);
-            textarea.value = before + "\n" + data.tag + "\n" + after;
-            textarea.selectionStart = textarea.selectionEnd = pos + data.tag.length + 2;
+        // Show a confirmation with thumbnail preview instead of inserting raw base64
+        if (data.image_url) {
+            const area = document.getElementById("transcript-area");
+            const preview = document.createElement("div");
+            preview.className = "transcript-entry";
+            preview.style.textAlign = "center";
+            preview.innerHTML = `<img src="${escapeHtml(data.image_url)}" alt="${escapeHtml(file.name)}" style="max-width:200px;max-height:150px;border-radius:8px;margin:4px 0">
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">${escapeHtml(t.image_saved || "Image saved")} — ${escapeHtml(file.name)}</div>`;
+            area.appendChild(preview);
+            area.scrollTop = area.scrollHeight;
         }
+
+        log("Image uploaded: " + file.name);
     } catch (e) {
+        log("Failed to upload image: " + e.message, "error");
         console.error("Failed to upload image:", e);
     }
 }
@@ -3082,6 +3363,143 @@ async function exportSession() {
     } catch (e) {
         console.error("Failed to export session:", e);
     }
+}
+
+/* ========== Session Mode Toggle ========== */
+function selectSessionMode(mode) {
+    sessionMode = mode;
+    document.querySelectorAll("#modal-mode-toggle button").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.mode === mode);
+    });
+}
+
+/* ========== Light Mode Notes ========== */
+function addLightNote() {
+    const input = document.getElementById("light-note-input");
+    const text = input.value.trim();
+    if (!text || !currentSessionId || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    ws.send(JSON.stringify({
+        type: "note",
+        text: text,
+        elapsed_seconds: elapsedSeconds,
+    }));
+
+    // Show note locally
+    const area = document.getElementById("transcript-area");
+    const mins = Math.floor(elapsedSeconds / 60);
+    const secs = elapsedSeconds % 60;
+    const elapsed = `${mins}:${String(secs).padStart(2, "0")}`;
+
+    const entry = document.createElement("div");
+    entry.className = "light-note-entry";
+    entry.innerHTML = `<span class="elapsed-stamp" onclick="seekAudio(${elapsedSeconds})">[${elapsed}]</span><span class="note-text">${escapeHtml(text)}</span>`;
+    area.appendChild(entry);
+    area.scrollTop = area.scrollHeight;
+
+    input.value = "";
+    input.focus();
+}
+
+function formatElapsed(seconds) {
+    const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+    const s = String(seconds % 60).padStart(2, "0");
+    return `${m}:${s}`;
+}
+
+/* ========== Audio Player ========== */
+function showAudioPlayer(sessionId) {
+    const container = document.getElementById("audio-player-container");
+    const player = document.getElementById("session-audio-player");
+    const label = document.getElementById("audio-label");
+
+    player.src = `/api/sessions/${sessionId}/audio`;
+    label.textContent = t.audio_player || "Audio Recording";
+    container.style.display = "flex";
+}
+
+function hideAudioPlayer() {
+    const container = document.getElementById("audio-player-container");
+    const player = document.getElementById("session-audio-player");
+    container.style.display = "none";
+    player.src = "";
+    player.pause();
+}
+
+function seekAudio(seconds) {
+    const player = document.getElementById("session-audio-player");
+    if (player.src) {
+        player.currentTime = seconds;
+        player.play();
+    }
+}
+
+/* ========== Re-transcribe ========== */
+async function showRetranscribeBar(sessionId) {
+    const bar = document.getElementById("retranscribe-bar");
+    const select = document.getElementById("retranscribe-model-select");
+
+    try {
+        const resp = await fetch("/api/models");
+        const data = await resp.json();
+        select.innerHTML = "";
+        const downloaded = (data.models || []).filter(m => m.downloaded);
+        downloaded.forEach(m => {
+            const opt = document.createElement("option");
+            opt.value = m.key;
+            opt.textContent = m.key + (m.active ? " (active)" : "");
+            opt.selected = m.active;
+            select.appendChild(opt);
+        });
+        bar.style.display = "flex";
+    } catch (e) {
+        console.error("Failed to load models for retranscribe:", e);
+    }
+}
+
+async function retranscribeSession() {
+    if (!currentSessionId) return;
+    const select = document.getElementById("retranscribe-model-select");
+    const btn = document.getElementById("retranscribe-btn");
+    const status = document.getElementById("retranscribe-status");
+
+    const modelKey = select.value;
+    btn.disabled = true;
+    status.textContent = t.retranscribing || "Re-transcribing...";
+    log(`Re-transcribing session ${currentSessionId} with model ${modelKey}`);
+
+    try {
+        const resp = await fetch(`/api/sessions/${currentSessionId}/retranscribe`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model_key: modelKey }),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) throw new Error(data.detail || "Failed");
+
+        // Clear and re-populate transcript area
+        const area = document.getElementById("transcript-area");
+        area.innerHTML = "";
+        if (data.segments) {
+            data.segments.forEach((seg, i) => {
+                if (seg.text) {
+                    const minutes = Math.floor(seg.start / 60);
+                    const seconds = Math.floor(seg.start % 60);
+                    const ts = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+                    setTimeout(() => addTranscriptEntry(seg.text, ts), i * 50);
+                }
+            });
+        }
+
+        const count = data.count || 0;
+        status.textContent = `${t.retranscribe_complete || "Re-transcription complete"} (${count} segments)`;
+        log(`Re-transcription complete: ${count} segments`);
+    } catch (e) {
+        log("Re-transcription failed: " + e.message, "error");
+        status.textContent = t.retranscribe_error || "Re-transcription failed";
+    }
+    btn.disabled = false;
 }
 
 /* ========== Clock ========== */

@@ -139,6 +139,13 @@ class Config:
         return path
 
     @classmethod
+    def images_path(cls, session_id: str) -> Path:
+        """Return the images directory for a session, creating it if needed."""
+        path = cls.sessions_path() / "images" / session_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
     def static_path(cls) -> Path:
         return cls.project_root() / cls.STATIC_DIR
 
