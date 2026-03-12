@@ -8,6 +8,7 @@
 const { app, BrowserWindow, Menu, dialog, shell, systemPreferences } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 const net = require("net");
 
 const PORT = 8080;
@@ -17,6 +18,37 @@ const STARTUP_TIMEOUT_MS = 60_000; // 60 s (model download can be slow)
 
 let pythonProcess = null;
 let mainWindow = null;
+let electronLogStream = null;
+
+// ---------------------------------------------------------------------------
+// Electron-side log file (packaged app only)
+// ---------------------------------------------------------------------------
+
+function initElectronLog() {
+  if (!app.isPackaged) return;
+  const os = require("os");
+  const logDir = path.join(os.homedir(), "Documents", "Steno", "logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  const logFile = path.join(logDir, "electron.log");
+
+  // Rotate: if existing log > 5 MB, move to .old
+  try {
+    const stats = fs.statSync(logFile);
+    if (stats.size > 5 * 1024 * 1024) {
+      fs.renameSync(logFile, logFile + ".old");
+    }
+  } catch (_) {
+    // File doesn't exist yet — fine
+  }
+
+  electronLogStream = fs.createWriteStream(logFile, { flags: "a" });
+  electronLog("=== Steno Electron started ===");
+}
+
+function electronLog(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  if (electronLogStream) electronLogStream.write(line);
+}
 
 // ---------------------------------------------------------------------------
 // Python server management
@@ -35,7 +67,6 @@ function startPythonServer() {
       );
 
       // Ensure the binary exists before trying to spawn it
-      const fs = require("fs");
       if (!fs.existsSync(bin)) {
         reject(new Error(`Backend binary not found at: ${bin}`));
         return;
@@ -53,11 +84,15 @@ function startPythonServer() {
 
     let stderrBuffer = "";
 
-    pythonProcess.stdout.on("data", (d) => process.stdout.write(`[py] ${d}`));
+    pythonProcess.stdout.on("data", (d) => {
+      process.stdout.write(`[py] ${d}`);
+      electronLog(`[py:stdout] ${d.toString().trimEnd()}`);
+    });
     pythonProcess.stderr.on("data", (d) => {
       const text = d.toString();
       stderrBuffer += text;
       process.stderr.write(`[py] ${text}`);
+      electronLog(`[py:stderr] ${text.trimEnd()}`);
     });
 
     pythonProcess.on("error", (err) => {
@@ -235,6 +270,7 @@ function createWindow() {
 // ---------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
+  initElectronLog();
   try {
     // Request microphone access on macOS before starting
     if (process.platform === "darwin") {

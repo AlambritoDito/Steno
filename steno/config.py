@@ -146,6 +146,13 @@ class Config:
         return path
 
     @classmethod
+    def logs_path(cls) -> Path:
+        """Return the logs directory, creating it if needed."""
+        path = cls.data_dir() / "logs"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @classmethod
     def static_path(cls) -> Path:
         return cls.project_root() / cls.STATIC_DIR
 
