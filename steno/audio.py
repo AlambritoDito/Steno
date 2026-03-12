@@ -19,7 +19,13 @@ except OSError as e:
     PORTAUDIO_AVAILABLE = False
     _portaudio_error = str(e)
     sd = None  # type: ignore[assignment]
-    logger.error("PortAudio not available: %s", e)
+    logger.error(
+        "PortAudio not available — recording will be disabled. "
+        "Error: %s. If running a packaged build, this may be a code-signing issue "
+        "with the bundled libportaudio dylib.",
+        e,
+        exc_info=True,
+    )
 
 
 class WavWriter:

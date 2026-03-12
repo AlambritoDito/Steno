@@ -98,6 +98,17 @@ find dist/steno-server -name '*.pyc' -delete 2>/dev/null || true
 find dist/steno-server -name 'tests' -type d -exec rm -rf {} + 2>/dev/null || true
 
 echo ""
+echo "==> Ad-hoc signing bundled native libraries..."
+echo "    (required for macOS hardened runtime / Gatekeeper)"
+SIGNED=0
+for ext in dylib so; do
+    while IFS= read -r -d '' lib; do
+        codesign --force --sign - "$lib" 2>/dev/null && SIGNED=$((SIGNED + 1))
+    done < <(find dist/steno-server -name "*.$ext" -print0)
+done
+echo "    Signed $SIGNED native libraries"
+
+echo ""
 echo "==> Build complete!"
 BUNDLE_SIZE=$(du -sh dist/steno-server | cut -f1)
 echo "    Output: dist/steno-server/ ($BUNDLE_SIZE)"
