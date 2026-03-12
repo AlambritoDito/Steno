@@ -52,6 +52,8 @@ uv run pyinstaller \
     --hidden-import multipart \
     --hidden-import aiofiles \
     --hidden-import websockets \
+    --collect-all mlx \
+    --collect-all mlx_whisper \
     --collect-all sounddevice \
     --collect-all _sounddevice_data \
     --collect-data certifi \
