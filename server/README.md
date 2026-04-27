@@ -6,6 +6,12 @@ LAN/Tailscale transcription service backed by mlx-whisper. Sibling to the [Steno
 
 ## Quick start (development)
 
+System prerequisite: ffmpeg (mlx-whisper shells out to it for audio decoding):
+
+```bash
+brew install ffmpeg
+```
+
 From the **workspace root** (one directory above `server/`):
 
 ```bash
