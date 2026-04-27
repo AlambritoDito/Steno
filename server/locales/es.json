@@ -1,0 +1,45 @@
+{
+  "app_title": "Steno Server",
+  "app_subtitle": "Transcripción local en tu red",
+
+  "upload_heading": "Sube un archivo de audio",
+  "upload_drop_hint": "Arrastra y suelta un archivo aquí, o haz clic para seleccionar",
+  "upload_choose_file": "Seleccionar archivo",
+  "upload_supported_formats": "Formatos soportados: WAV, MP3, M4A, FLAC, OGG, WebM, MP4 (máx. {max_mb} MB)",
+  "upload_language_label": "Idioma del audio",
+  "upload_language_es": "Español",
+  "upload_language_en": "Inglés",
+  "upload_options_heading": "Opciones de Fase 2",
+  "upload_options_note": "Estos extras corren después de la transcripción rápida (Fase 1). Toman 20–30 minutos para una hora de audio.",
+  "upload_option_denoise": "Reducción de ruido (demucs)",
+  "upload_option_diarization": "Identificación de hablantes (pyannote)",
+  "upload_submit": "Subir y empezar transcripción",
+  "upload_invalid_format": "Formato no soportado. Por favor sube WAV, MP3, M4A, FLAC, OGG, WebM o MP4.",
+  "upload_too_large": "Archivo demasiado grande (máx. {max_mb} MB).",
+
+  "processing_heading": "Procesando",
+  "processing_queued": "Tu trabajo está en posición {position} de la cola.",
+  "processing_queued_first": "Tu trabajo es el siguiente en la cola.",
+  "processing_phase1_running": "Fase 1: Transcribiendo audio…",
+  "processing_phase1_done": "Fase 1 completada.",
+  "processing_phase2_running": "Fase 2: {step}…",
+  "processing_phase2_step_denoise": "Reduciendo ruido",
+  "processing_phase2_step_diarization": "Identificando hablantes",
+  "processing_phase2_step_transcribe": "Re-transcribiendo audio limpio",
+  "processing_phase2_done": "Fase 2 completada.",
+
+  "download_raw": "Descargar transcripción cruda (Fase 1)",
+  "download_clean": "Descargar transcripción procesada (Fase 2)",
+
+  "error_banner_heading": "Algo falló",
+  "error_phase2_heading": "Fase 2 falló",
+  "error_phase2_recovered_message": "El servidor se reinició durante la Fase 2. La transcripción cruda sigue disponible para descarga.",
+  "error_view_logs": "Ver logs / Contactar a TI",
+  "error_modal_heading": "Logs recientes",
+  "error_modal_copy": "Copiar al portapapeles",
+  "error_modal_close": "Cerrar",
+  "error_modal_help": "Si el problema persiste, copia los logs de arriba y envíalos al equipo de TI.",
+
+  "language_toggle": "EN",
+  "footer_view_logs": "Ver logs"
+}
