@@ -58,11 +58,17 @@ Download the latest `.dmg` from [Releases](https://github.com/AlambritoDito/Sten
 ```bash
 git clone https://github.com/AlambritoDito/Steno.git
 cd Steno
-uv sync
-uv run main.py
+uv sync --extra dev
+uv run --directory app main.py
 ```
 
 Steno opens automatically at **http://localhost:8080**.
+
+> **Repository layout (since v0.3.0):** This repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/) with two products:
+> - [`app/`](./app/) — the desktop transcription app (this README mostly describes it).
+> - [`server/`](./server/) — Steno Server, the LAN/Tailscale web service that exposes transcription as a REST API. Coming with v0.3.0; see [`server/README.md`](./server/README.md) once landed.
+>
+> One shared `.venv` is created at the workspace root by `uv sync`.
 
 ## First Launch
 

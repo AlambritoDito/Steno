@@ -2,7 +2,7 @@
 # -------------------------------------------------------------------
 # build-python.sh — Bundle the Steno Python backend with PyInstaller
 #
-# Creates dist/steno-server/ which electron-builder embeds as an
+# Creates dist/steno-app-backend/ which electron-builder embeds as an
 # extraResource inside the .app bundle.
 #
 # Prerequisites:
@@ -21,11 +21,11 @@ echo "==> Installing PyInstaller..."
 uv pip install pyinstaller
 
 echo "==> Cleaning previous build..."
-rm -rf dist/steno-server build/steno-server steno-server.spec
+rm -rf dist/steno-app-backend build/steno-app-backend steno-app-backend.spec
 
 echo "==> Building Steno backend..."
 uv run pyinstaller \
-    --name steno-server \
+    --name steno-app-backend \
     --onedir \
     --noconfirm \
     --strip \
@@ -93,9 +93,9 @@ uv run pyinstaller \
 
 echo ""
 echo "==> Post-build cleanup..."
-find dist/steno-server -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
-find dist/steno-server -name '*.pyc' -delete 2>/dev/null || true
-find dist/steno-server -name 'tests' -type d -exec rm -rf {} + 2>/dev/null || true
+find dist/steno-app-backend -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+find dist/steno-app-backend -name '*.pyc' -delete 2>/dev/null || true
+find dist/steno-app-backend -name 'tests' -type d -exec rm -rf {} + 2>/dev/null || true
 
 echo ""
 echo "==> Ad-hoc signing bundled native libraries..."
@@ -104,14 +104,14 @@ SIGNED=0
 for ext in dylib so; do
     while IFS= read -r -d '' lib; do
         codesign --force --sign - "$lib" 2>/dev/null && SIGNED=$((SIGNED + 1))
-    done < <(find dist/steno-server -name "*.$ext" -print0)
+    done < <(find dist/steno-app-backend -name "*.$ext" -print0)
 done
 echo "    Signed $SIGNED native libraries"
 
 echo ""
 echo "==> Build complete!"
-BUNDLE_SIZE=$(du -sh dist/steno-server | cut -f1)
-echo "    Output: dist/steno-server/ ($BUNDLE_SIZE)"
-echo "    Binary: dist/steno-server/steno-server"
+BUNDLE_SIZE=$(du -sh dist/steno-app-backend | cut -f1)
+echo "    Output: dist/steno-app-backend/ ($BUNDLE_SIZE)"
+echo "    Binary: dist/steno-app-backend/steno-app-backend"
 echo ""
 echo "    Run 'npm run build:electron' next to create the .dmg"

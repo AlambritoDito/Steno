@@ -1,6 +1,7 @@
 """Global configuration for Steno."""
 
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -154,13 +155,22 @@ class Config:
 
     @classmethod
     def models_dir(cls) -> Path:
-        """Return the directory for downloaded models, creating it if needed.
+        """Return the HuggingFace Hub cache directory.
 
-        Uses ~/Documents/Steno/models/ in packaged mode, or
-        a 'models/' subdirectory under data_dir() in dev mode.
-        HuggingFace Hub stores models in its standard layout inside this directory.
+        Resolves to:
+          1. ``$HF_HUB_CACHE`` if set
+          2. ``$HF_HOME/hub`` if HF_HOME is set
+          3. ``~/.cache/huggingface/hub`` (huggingface_hub default)
+
+        This is shared with the sibling steno-server product so
+        ``whisper-large-v3-turbo`` (~3 GB) is not duplicated across products.
         """
-        path = cls.data_dir() / "models"
+        hf_hub_cache = os.environ.get("HF_HUB_CACHE")
+        if hf_hub_cache:
+            path = Path(hf_hub_cache)
+        else:
+            hf_home = os.environ.get("HF_HOME")
+            path = Path(hf_home) / "hub" if hf_home else Path.home() / ".cache" / "huggingface" / "hub"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
@@ -191,30 +201,43 @@ class Config:
         path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
     @classmethod
-    def model_cache_path(cls, repo: str) -> Path | None:
-        """Return the HuggingFace cache directory for a model repo, or None.
+    def _model_cache_candidates(cls) -> list[Path]:
+        """Return all directories that might hold a HuggingFace model cache,
+        in priority order (resolved location first, legacy locations after).
+        """
+        candidates: list[Path] = [cls.models_dir()]
+        # Legacy v0.2.0 packaged-mode location.
+        legacy_documents = Path.home() / "Documents" / "Steno" / "models"
+        if legacy_documents not in candidates:
+            candidates.append(legacy_documents)
+        # Default HF cache, in case user has HF_HOME set but their existing
+        # downloads live in the system default.
+        default_hf = Path.home() / ".cache" / "huggingface" / "hub"
+        if default_hf not in candidates:
+            candidates.append(default_hf)
+        return candidates
 
-        Checks the custom models directory first, then falls back to the
-        default HuggingFace cache (~/.cache/huggingface/hub/) for backwards
-        compatibility with previously-downloaded models.
+    @classmethod
+    def model_cache_path(cls, repo: str) -> Path | None:
+        """Return the on-disk path for a cached model repo, or None.
+
+        Checks the resolved HF cache first, then legacy locations (Documents
+        from v0.2.0, default ~/.cache/huggingface/hub) for backwards
+        compatibility.
         """
         folder_name = "models--" + repo.replace("/", "--")
-        # Check custom models dir
-        custom = cls.models_dir() / folder_name
-        if custom.exists():
-            return custom
-        # Fallback: default HF cache
-        default = Path.home() / ".cache" / "huggingface" / "hub" / folder_name
-        if default.exists():
-            return default
+        for cache_dir in cls._model_cache_candidates():
+            path = cache_dir / folder_name
+            if path.exists():
+                return path
         return None
 
     @classmethod
     def delete_model_cache(cls, repo: str) -> bool:
-        """Delete a model's cache. Returns True if deleted."""
+        """Delete a model's cache from every known location. Returns True if deleted."""
         folder_name = "models--" + repo.replace("/", "--")
         deleted = False
-        for cache_dir in [cls.models_dir(), Path.home() / ".cache" / "huggingface" / "hub"]:
+        for cache_dir in cls._model_cache_candidates():
             path = cache_dir / folder_name
             if path.exists():
                 shutil.rmtree(path)

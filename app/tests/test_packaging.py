@@ -51,22 +51,29 @@ class TestConfigPaths:
     """Test Config path methods for dev and frozen modes."""
 
     def test_models_dir_exists_after_call(self):
-        """models_dir() should create the directory if it doesn't exist."""
+        """models_dir() resolves to the HF Hub cache and creates it if missing."""
         models = Config.models_dir()
         assert models.exists()
         assert models.is_dir()
-        assert models.name == "models"
+        assert models.name == "hub"
 
-    def test_models_dir_frozen(self, monkeypatch):
-        """In frozen mode, models_dir() should be ~/Documents/Steno/models/."""
-        monkeypatch.setattr(Config, "is_frozen", classmethod(lambda cls: True))
-        monkeypatch.setattr(
-            Config, "data_dir",
-            classmethod(lambda cls: Path.home() / "Documents" / "Steno"),
-        )
+    def test_models_dir_default(self, monkeypatch):
+        """Without HF_HUB_CACHE / HF_HOME, models_dir() is ~/.cache/huggingface/hub."""
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+        monkeypatch.delenv("HF_HOME", raising=False)
         models = Config.models_dir()
-        expected = Path.home() / "Documents" / "Steno" / "models"
-        assert models == expected
+        assert models == Path.home() / ".cache" / "huggingface" / "hub"
+
+    def test_models_dir_respects_hf_hub_cache(self, tmp_path, monkeypatch):
+        """If HF_HUB_CACHE is set, models_dir() returns it."""
+        monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "custom-hub"))
+        assert Config.models_dir() == tmp_path / "custom-hub"
+
+    def test_models_dir_respects_hf_home(self, tmp_path, monkeypatch):
+        """If HF_HOME is set (and HF_HUB_CACHE is not), models_dir() is $HF_HOME/hub."""
+        monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+        monkeypatch.setenv("HF_HOME", str(tmp_path / "hf-home"))
+        assert Config.models_dir() == tmp_path / "hf-home" / "hub"
 
     def test_model_cache_path_not_found(self):
         """model_cache_path should return None for a nonexistent model."""

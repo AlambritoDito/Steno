@@ -59,8 +59,8 @@
     },
     "extraResources": [
       {
-        "from": "dist/steno-server",
-        "to": "steno-server"
+        "from": "dist/steno-app-backend",
+        "to": "steno-app-backend"
       }
     ],
     "files": [

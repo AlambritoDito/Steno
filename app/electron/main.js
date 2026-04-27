@@ -85,8 +85,8 @@ async function startPythonServer() {
       // Production — use the PyInstaller binary bundled as an extra resource
       const bin = path.join(
         process.resourcesPath,
-        "steno-server",
-        "steno-server"
+        "steno-app-backend",
+        "steno-app-backend"
       );
 
       // Ensure the binary exists before trying to spawn it

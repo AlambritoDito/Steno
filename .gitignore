@@ -7,6 +7,7 @@ __pycache__/
 *.egg
 dist/
 build/steno-server/
+build/steno-app-backend/
 .eggs/
 
 # Virtual environments
@@ -60,3 +61,13 @@ package-lock.json
 
 # Build artifacts
 build/
+
+# Steno Server runtime
+/tmp/steno-server/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Workspace .venv (uv creates a single .venv at the workspace root)
+/.venv/
