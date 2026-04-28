@@ -9,12 +9,10 @@ asyncio.create_subprocess_exec.
 from __future__ import annotations
 
 import asyncio
-import shutil
 from pathlib import Path
 
 import pytest
 
-from steno_server import denoiser
 from steno_server.denoiser import DEMUCS_MODEL, Denoiser
 
 

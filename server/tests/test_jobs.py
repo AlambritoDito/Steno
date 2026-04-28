@@ -6,7 +6,7 @@ PipelineOptions JSON round-trip.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -86,7 +86,7 @@ class TestCRUD:
         await jobs.update_status(
             job.id,
             JobStatus.PHASE1_RUNNING,
-            phase1_started_at=datetime.now(timezone.utc),
+            phase1_started_at=datetime.now(UTC),
         )
         loaded = await jobs.get_job(job.id)
         assert loaded.status is JobStatus.PHASE1_RUNNING
@@ -94,7 +94,7 @@ class TestCRUD:
 
     async def test_update_status_only_touches_provided_fields(self):
         job = await jobs.create_job(filename="x.wav", language="es")
-        first = datetime.now(timezone.utc)
+        first = datetime.now(UTC)
         await jobs.update_status(
             job.id,
             JobStatus.PHASE1_RUNNING,

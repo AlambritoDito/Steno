@@ -73,9 +73,9 @@ def test_delete_job_files_returns_false_when_absent():
 def test_list_job_dirs_returns_oldest_first():
     a = storage.get_job_dir("a", create=True)
     time.sleep(0.01)
-    b = storage.get_job_dir("b", create=True)
+    storage.get_job_dir("b", create=True)
     time.sleep(0.01)
-    c = storage.get_job_dir("c", create=True)
+    storage.get_job_dir("c", create=True)
     # Touch a's mtime forward so order changes; ensures we're sorting on mtime.
     os.utime(a, (time.time(), time.time()))
     listed = storage.list_job_dirs()

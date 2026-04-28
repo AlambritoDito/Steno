@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from io import BytesIO
 from pathlib import Path
 
 import pytest

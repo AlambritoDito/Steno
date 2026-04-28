@@ -92,15 +92,11 @@ def _validate_fixture(fixture_path: Path, keywords: tuple[str, ...]) -> None:
     matches = [kw for kw in keywords if kw in normalized_actual]
     if not matches:
         sys.stderr.write(
-            "TTS quality insufficient for {fixture}.\n"
-            "  Whisper transcribed: {actual!r}\n"
-            "  Expected keywords  : {keywords}\n"
+            f"TTS quality insufficient for {fixture_path.name}.\n"
+            f"  Whisper transcribed: {actual!r}\n"
+            f"  Expected keywords  : {keywords}\n"
             "  Fall back to manual recording — see "
-            "server/tests/fixtures/README.md\n".format(
-                fixture=fixture_path.name,
-                actual=actual,
-                keywords=keywords,
-            )
+            "server/tests/fixtures/README.md\n"
         )
         raise SystemExit(2)
     print(f"  validated {fixture_path.name}: matched {matches}")

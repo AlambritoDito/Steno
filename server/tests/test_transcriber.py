@@ -8,7 +8,6 @@ the ``STENO_SERVER_TEST_MODEL`` env override to keep download cost low.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 import pytest
