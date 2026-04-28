@@ -18,15 +18,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import WebSocket
 
-from .config import settings
-from .jobs import JobStatus, PipelineOptions, get_job, update_status
+from .jobs import JobStatus, PipelineOptions, get_job
 from .logging_setup import get_logger
 from .pipeline import run_full
 from .transcriber import Transcriber

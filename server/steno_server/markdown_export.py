@@ -6,9 +6,9 @@ the output format under our control and avoid pulling another dependency.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Iterable
+from datetime import UTC, datetime
 
 from . import __version__
 from .postprocess import AnnotatedSegment, TranscriptSegment
@@ -68,7 +68,7 @@ def render_raw_md(inputs: RawExportInputs) -> str:
             "type": "raw",
             "source_filename": inputs.source_filename,
             "language": inputs.language,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "audio_duration_seconds": round(inputs.audio_duration_seconds, 2),
             "phase1_duration_seconds": round(inputs.phase1_duration_seconds, 2),
             "model": inputs.model,
@@ -129,7 +129,7 @@ def render_clean_md(inputs: CleanExportInputs) -> str:
             "type": "clean",
             "source_filename": inputs.source_filename,
             "language": inputs.language,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "audio_duration_seconds": round(inputs.audio_duration_seconds, 2),
             "phase1_duration_seconds": round(inputs.phase1_duration_seconds, 2),
             "phase2_duration_seconds": round(inputs.phase2_duration_seconds, 2),

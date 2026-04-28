@@ -9,14 +9,13 @@ callback so the WebSocket layer can broadcast them.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from . import __version__
 from .audio_io import (
-    AudioInfo,
     AudioValidationError,
     load_normalized,
     normalize_audio,
@@ -81,7 +80,7 @@ async def run_phase_1(
     entry, phase1_done on success, failed on exception). Re-raises whatever
     exception was caught so the queue worker can decide what to do.
     """
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     started_monotonic = time.monotonic()
 
     await update_status(job_id, JobStatus.PHASE1_RUNNING, phase1_started_at=started_at)
@@ -148,7 +147,7 @@ async def run_phase_1(
         )
         md_path.write_text(md, encoding="utf-8")
 
-        completed_at = datetime.now(timezone.utc)
+        completed_at = datetime.now(UTC)
         await update_status(
             job_id,
             JobStatus.PHASE1_DONE,
@@ -267,7 +266,7 @@ async def run_phase_2(
     from .denoiser import Denoiser
     from .diarizer import Diarizer
 
-    started_at = datetime.now(timezone.utc)
+    started_at = datetime.now(UTC)
     started_monotonic = time.monotonic()
     await update_status(job_id, JobStatus.PHASE2_RUNNING, phase2_started_at=started_at)
     await _emit(progress_callback, {"type": "phase2_started", "job_id": job_id, "step": "denoise"})
@@ -341,7 +340,7 @@ async def run_phase_2(
         )
         md_path.write_text(md, encoding="utf-8")
 
-        completed_at = datetime.now(timezone.utc)
+        completed_at = datetime.now(UTC)
         await update_status(
             job_id,
             JobStatus.DONE,

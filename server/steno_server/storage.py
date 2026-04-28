@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -146,5 +146,5 @@ async def run_cleanup_loop(interval_seconds: int = 3600) -> None:
 def cutoff_iso(retention_hours: int | None = None) -> str:
     """Helpful for logs: ISO timestamp of the current retention cutoff."""
     hours = retention_hours if retention_hours is not None else settings.job_retention_hours
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
     return cutoff.isoformat()

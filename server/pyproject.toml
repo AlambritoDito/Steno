@@ -57,4 +57,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "B", "UP"]
-ignore = ["E501"]
+# E501: line length is enforced by formatter, not lint.
+# B008: FastAPI's File()/Form()/Query() pattern uses callables in defaults.
+# UP040: type-aliases use plain `Foo = ...` rather than `type Foo = ...` so
+#   the codebase reads identically on Python 3.11.
+ignore = ["E501", "B008", "UP040"]

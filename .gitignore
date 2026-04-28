@@ -36,7 +36,8 @@ htmlcov/
 
 # Steno
 sessions/*.md
-!sessions/.gitkeep
+**/sessions/*.md
+!**/sessions/.gitkeep
 models/
 logs/
 *.wav

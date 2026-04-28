@@ -15,7 +15,7 @@ import enum
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,7 @@ from .storage import delete_job_files
 logger = get_logger(__name__)
 
 
-class JobStatus(str, enum.Enum):
+class JobStatus(enum.StrEnum):
     """Lifecycle states.
 
     The state machine flows: queued → phase1_running → phase1_done →
@@ -65,7 +65,7 @@ class PipelineOptions:
         )
 
     @classmethod
-    def from_json(cls, raw: str | None) -> "PipelineOptions":
+    def from_json(cls, raw: str | None) -> PipelineOptions:
         if not raw:
             return cls()
         data = json.loads(raw)
@@ -164,7 +164,7 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _row_to_job(row: aiosqlite.Row) -> Job:

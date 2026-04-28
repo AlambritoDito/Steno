@@ -59,7 +59,7 @@ class TimestampMap:
     segments: tuple[tuple[int, int], ...]
 
     @classmethod
-    def from_speech_segments(cls, segments: list[SpeechSegment]) -> "TimestampMap":
+    def from_speech_segments(cls, segments: list[SpeechSegment]) -> TimestampMap:
         return cls(segments=tuple((s.start_ms, s.end_ms) for s in segments))
 
     def remap_ms(self, t_concat_ms: int) -> int:

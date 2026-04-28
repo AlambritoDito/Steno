@@ -65,10 +65,10 @@ uv run --directory app main.py
 Steno opens automatically at **http://localhost:8080**.
 
 > **Repository layout (since v0.3.0):** This repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/) with two products:
-> - [`app/`](./app/) — the desktop transcription app (this README mostly describes it).
-> - [`server/`](./server/) — Steno Server, the LAN/Tailscale web service that exposes transcription as a REST API. Coming with v0.3.0; see [`server/README.md`](./server/README.md) once landed.
+> - [`app/`](./app/) — the desktop transcription app described in this README. See [`app/README.md`](./app/README.md) for developer details.
+> - [`server/`](./server/) — Steno Server, the LAN/Tailscale web service that exposes transcription as a REST API for office uploads and headless agents. See [`server/README.md`](./server/README.md).
 >
-> One shared `.venv` is created at the workspace root by `uv sync`.
+> One shared `.venv` is created at the workspace root by `uv sync`. Whisper models live in `~/.cache/huggingface/hub/` and are shared between both products.
 
 ## First Launch
 

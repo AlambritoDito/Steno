@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from typing import Iterable
 
 # ---------------------------------------------------------------------------
 # Bag of Hallucinations (extend cautiously — false positives are worse than
@@ -69,7 +69,7 @@ class TranscriptSegment:
     end_s: float
     metadata: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
-    def with_metadata(self, **kv: str) -> "TranscriptSegment":
+    def with_metadata(self, **kv: str) -> TranscriptSegment:
         merged = dict(self.metadata) | {k: str(v) for k, v in kv.items()}
         return replace(self, metadata=tuple(sorted(merged.items())))
 
