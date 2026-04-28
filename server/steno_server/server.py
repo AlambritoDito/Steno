@@ -185,7 +185,15 @@ async def create_job(
         )
 
     position = await queue.enqueue(
-        QueuedJob(job_id=job.id, source_path=saved_path, language=language)
+        QueuedJob(
+            job_id=job.id,
+            source_path=saved_path,
+            language=language,
+            options=PipelineOptions(
+                enable_denoise=enable_denoise,
+                enable_diarization=enable_diarization,
+            ),
+        )
     )
     return JobCreatedResponse(job_id=job.id, status="queued", queue_position=position)
 

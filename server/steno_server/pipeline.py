@@ -22,16 +22,24 @@ from .audio_io import (
     normalize_audio,
 )
 from .config import settings
-from .jobs import JobStatus, update_status
+from .jobs import JobStatus, PipelineOptions, update_status
 from .logging_setup import get_logger
-from .markdown_export import RawExportInputs, render_raw_md
+from .markdown_export import (
+    CleanExportInputs,
+    RawExportInputs,
+    render_clean_md,
+    render_raw_md,
+)
 from .postprocess import (
+    AnnotatedSegment,
     TranscriptSegment,
     bag_of_hallucinations_filter,
     delooping,
+    merge_speakers_with_text,
     remap_timestamps,
 )
 from .storage import (
+    get_denoised_path,
     get_normalized_path,
     get_transcript_path,
 )
@@ -233,4 +241,187 @@ async def _transcribe_and_clean(
     return bag_of_hallucinations_filter(deduped, language)
 
 
-__all__ = ["run_phase_1", "RawTranscript", "ProgressCallback"]
+@dataclass
+class CleanTranscript:
+    """Output of run_phase_2."""
+
+    segments: list[AnnotatedSegment]
+    transcript_path: Path
+    phase2_duration_seconds: float
+
+
+async def run_phase_2(
+    *,
+    job_id: str,
+    raw_transcript: RawTranscript,
+    language: str,
+    transcriber: Transcriber,
+    options: PipelineOptions,
+    progress_callback: ProgressCallback | None = None,
+) -> CleanTranscript:
+    """Phase 2: denoise (optional) → diarize (optional) → re-transcribe →
+    merge speakers with text → write transcript-clean.md.
+
+    Status transitions: phase2_running → done (or phase2_failed).
+    """
+    from .denoiser import Denoiser
+    from .diarizer import Diarizer
+
+    started_at = datetime.now(timezone.utc)
+    started_monotonic = time.monotonic()
+    await update_status(job_id, JobStatus.PHASE2_RUNNING, phase2_started_at=started_at)
+    await _emit(progress_callback, {"type": "phase2_started", "job_id": job_id, "step": "denoise"})
+
+    try:
+        normalized = get_normalized_path(job_id)
+        audio_to_transcribe: Path = normalized
+
+        # 1. Denoise (optional)
+        if options.enable_denoise:
+            denoised_path = get_denoised_path(job_id)
+            await _emit(
+                progress_callback,
+                {"type": "phase2_progress", "job_id": job_id, "step": "denoise", "percent": 0},
+            )
+            await Denoiser().denoise(normalized, denoised_path)
+            audio_to_transcribe = denoised_path
+            await _emit(
+                progress_callback,
+                {"type": "phase2_progress", "job_id": job_id, "step": "denoise", "percent": 100},
+            )
+
+        # 2. Diarize (optional)
+        speaker_segments = []
+        if options.enable_diarization:
+            await _emit(
+                progress_callback,
+                {"type": "phase2_progress", "job_id": job_id, "step": "diarization", "percent": 0},
+            )
+            speaker_segments = await Diarizer().diarize(audio_to_transcribe)
+            await _emit(
+                progress_callback,
+                {"type": "phase2_progress", "job_id": job_id, "step": "diarization", "percent": 100},
+            )
+
+        # 3. Re-transcribe the cleaned audio so timestamps line up with
+        #    the diarization output.
+        await _emit(
+            progress_callback,
+            {"type": "phase2_progress", "job_id": job_id, "step": "transcribe", "percent": 0},
+        )
+        transcriber.set_language(language)
+        clean_chunks: list[TranscriptSegment] = []
+
+        async def on_chunk(chunk: TranscriptChunk) -> None:
+            clean_chunks.append(
+                TranscriptSegment(text=chunk.text, start_s=chunk.start_s, end_s=chunk.end_s)
+            )
+
+        await transcriber.transcribe_streaming(audio_to_transcribe, language, on_chunk)
+        deduped = delooping(clean_chunks)
+        clean_segments = bag_of_hallucinations_filter(deduped, language)
+
+        # 4. Merge with speakers
+        annotated = merge_speakers_with_text(clean_segments, speaker_segments)
+
+        # 5. Render clean .md
+        phase2_duration = time.monotonic() - started_monotonic
+        md_path = get_transcript_path(job_id, "clean")
+        md = render_clean_md(
+            CleanExportInputs(
+                job_id=job_id,
+                source_filename=normalized.name,
+                language=language,
+                audio_duration_seconds=raw_transcript.audio_duration_seconds,
+                phase1_duration_seconds=raw_transcript.phase1_duration_seconds,
+                phase2_duration_seconds=phase2_duration,
+                model=transcriber.model_name,
+                segments=annotated,
+            )
+        )
+        md_path.write_text(md, encoding="utf-8")
+
+        completed_at = datetime.now(timezone.utc)
+        await update_status(
+            job_id,
+            JobStatus.DONE,
+            phase2_completed_at=completed_at,
+        )
+        await _emit(
+            progress_callback,
+            {
+                "type": "phase2_completed",
+                "job_id": job_id,
+                "transcript_url": f"/api/jobs/{job_id}/transcript-clean.md",
+            },
+        )
+        logger.info(
+            "phase2_completed",
+            job_id=job_id,
+            speakers=len({s.speaker_id for s in speaker_segments if s.speaker_id}),
+            duration_s=round(phase2_duration, 2),
+        )
+        return CleanTranscript(
+            segments=annotated,
+            transcript_path=md_path,
+            phase2_duration_seconds=phase2_duration,
+        )
+
+    except Exception as exc:  # noqa: BLE001
+        msg = f"Phase 2 failed: {exc}"
+        logger.error("phase2_failed", job_id=job_id, error=str(exc), exc_info=True)
+        await update_status(job_id, JobStatus.PHASE2_FAILED, phase2_error_message=msg)
+        await _emit(
+            progress_callback,
+            {"type": "error", "job_id": job_id, "phase": "phase2", "message": msg},
+        )
+        raise
+
+
+async def run_full(
+    *,
+    job_id: str,
+    source_path: Path,
+    language: str,
+    options: PipelineOptions,
+    transcriber: Transcriber,
+    progress_callback: ProgressCallback | None = None,
+) -> tuple[RawTranscript, CleanTranscript | None]:
+    """Run Phase 1, then Phase 2 if either toggle is on.
+
+    Phase 2 failures don't propagate — the raw transcript is on disk and
+    the user can still download it. The exception is logged via the
+    pipeline-internal handler and emitted on the WebSocket.
+    """
+    raw = await run_phase_1(
+        job_id=job_id,
+        source_path=source_path,
+        language=language,
+        transcriber=transcriber,
+        progress_callback=progress_callback,
+    )
+    if not (options.enable_denoise or options.enable_diarization):
+        await update_status(job_id, JobStatus.DONE)
+        return raw, None
+    try:
+        clean = await run_phase_2(
+            job_id=job_id,
+            raw_transcript=raw,
+            language=language,
+            transcriber=transcriber,
+            options=options,
+            progress_callback=progress_callback,
+        )
+        return raw, clean
+    except Exception:  # noqa: BLE001
+        return raw, None
+
+
+__all__ = [
+    "run_phase_1",
+    "run_phase_2",
+    "run_full",
+    "RawTranscript",
+    "CleanTranscript",
+    "ProgressCallback",
+]

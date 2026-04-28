@@ -26,9 +26,9 @@ from typing import Any, Awaitable, Callable
 from fastapi import WebSocket
 
 from .config import settings
-from .jobs import JobStatus, get_job, update_status
+from .jobs import JobStatus, PipelineOptions, get_job, update_status
 from .logging_setup import get_logger
-from .pipeline import run_phase_1
+from .pipeline import run_full
 from .transcriber import Transcriber
 
 logger = get_logger(__name__)
@@ -41,6 +41,7 @@ class QueuedJob:
     job_id: str
     source_path: Path
     language: str
+    options: PipelineOptions = field(default_factory=PipelineOptions)
 
 
 @dataclass
@@ -287,24 +288,30 @@ class JobQueue:
             st = self._states[queued.job_id]
             if kind == "phase1_chunk":
                 st.chunks.append(payload)
-            if kind == "phase1_completed":
+            elif kind == "phase1_completed":
                 st.status = JobStatus.PHASE1_DONE
                 st.transcript_raw_url = payload.get("transcript_url")
-            if kind == "error":
+            elif kind == "phase2_started":
+                st.status = JobStatus.PHASE2_RUNNING
+            elif kind == "phase2_completed":
+                st.status = JobStatus.DONE
+                st.transcript_clean_url = payload.get("transcript_url")
+            elif kind == "error":
                 st.error = payload
             st.last_event = payload
             await self._broadcast_to_listeners(queued.job_id, payload)
 
         try:
-            await run_phase_1(
+            await run_full(
                 job_id=queued.job_id,
                 source_path=queued.source_path,
                 language=queued.language,
+                options=queued.options,
                 transcriber=self._transcriber,
                 progress_callback=progress,
             )
         except Exception:  # noqa: BLE001
-            # run_phase_1 already logged + updated DB + emitted error event.
+            # run_full's pipeline already logged + updated DB + emitted error.
             pass
         finally:
             async with self._lock:
