@@ -1,0 +1,14 @@
+/* Minimal additions on top of Tailwind CDN */
+
+#chunks-container > div {
+  word-break: break-word;
+}
+
+/* Smooth fade-in for chunks as they stream */
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+#chunks-container > div {
+  animation: fadein 0.18s ease-out;
+}

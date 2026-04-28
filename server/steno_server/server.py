@@ -18,7 +18,8 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__
@@ -82,6 +83,19 @@ app = FastAPI(
     description="LAN/Tailscale transcription service backed by mlx-whisper.",
     lifespan=lifespan,
 )
+
+# Static assets and SPA root.
+_STATIC_DIR = Path(__file__).parent.parent / "static"
+if _STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+@app.get("/", response_class=FileResponse)
+async def index() -> FileResponse:
+    index_path = _STATIC_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="UI not built")
+    return FileResponse(index_path, media_type="text/html")
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +233,37 @@ async def get_raw_transcript(job_id: str) -> FileResponse:
 @app.get("/api/jobs/{job_id}/transcript-clean.md")
 async def get_clean_transcript(job_id: str) -> FileResponse:
     return _serve_transcript(job_id, "clean")
+
+
+# ---------------------------------------------------------------------------
+# /api/logs/recent — last 200 lines of the JSON log file
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/logs/recent", response_class=PlainTextResponse)
+async def recent_logs(lines: int = Query(200, ge=1, le=1000)) -> str:
+    """Return the most recent N lines of the server log file as plain text.
+
+    Used by the UI's 'View logs / Contact IT' modal so support flows can
+    capture context without ssh access.
+    """
+    from .logging_setup import get_log_file
+
+    log_file = get_log_file()
+    if not log_file.exists():
+        return ""
+    # Read tail without slurping huge files into memory.
+    with log_file.open("rb") as f:
+        f.seek(0, 2)
+        size = f.tell()
+        block = 8192
+        data = b""
+        while size > 0 and data.count(b"\n") <= lines:
+            read_size = min(block, size)
+            f.seek(size - read_size)
+            data = f.read(read_size) + data
+            size -= read_size
+    return b"\n".join(data.splitlines()[-lines:]).decode("utf-8", errors="replace")
 
 
 # ---------------------------------------------------------------------------

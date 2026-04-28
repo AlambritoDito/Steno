@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Steno Server</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col">
+  <!-- Header -->
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-semibold" data-i18n="app_title">Steno Server</h1>
+      <p class="text-sm text-slate-400" data-i18n="app_subtitle">Transcripción local en tu red</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <button id="lang-toggle" class="text-xs px-3 py-1.5 rounded border border-slate-700 hover:bg-slate-800 transition" data-i18n="language_toggle">EN</button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main id="app-main" class="flex-1 px-6 py-8 max-w-3xl w-full mx-auto">
+    <!-- Upload view -->
+    <section id="view-upload" class="view">
+      <h2 class="text-2xl font-semibold mb-4" data-i18n="upload_heading">Sube un archivo de audio</h2>
+
+      <form id="upload-form" class="space-y-6">
+        <!-- Drop zone -->
+        <div id="drop-zone" class="border-2 border-dashed border-slate-700 rounded-lg p-10 text-center cursor-pointer hover:border-slate-500 transition">
+          <p class="text-slate-300 mb-2" data-i18n="upload_drop_hint">Arrastra y suelta un archivo aquí, o haz clic para seleccionar</p>
+          <p class="text-xs text-slate-500" id="upload-supported" data-i18n="upload_supported_formats">Formatos soportados…</p>
+          <input type="file" id="file-input" accept=".wav,.mp3,.m4a,.ogg,.flac,.webm,.mp4" class="hidden">
+          <p id="selected-file" class="mt-3 text-sm text-emerald-400 hidden"></p>
+        </div>
+
+        <!-- Language -->
+        <div>
+          <label class="block text-sm mb-2" data-i18n="upload_language_label">Idioma del audio</label>
+          <div class="flex gap-2">
+            <label class="flex-1 cursor-pointer">
+              <input type="radio" name="language" value="es" class="peer hidden" checked>
+              <div class="px-4 py-2 rounded border border-slate-700 text-center peer-checked:border-emerald-500 peer-checked:bg-emerald-500/10" data-i18n="upload_language_es">Español</div>
+            </label>
+            <label class="flex-1 cursor-pointer">
+              <input type="radio" name="language" value="en" class="peer hidden">
+              <div class="px-4 py-2 rounded border border-slate-700 text-center peer-checked:border-emerald-500 peer-checked:bg-emerald-500/10" data-i18n="upload_language_en">Inglés</div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Phase 2 options -->
+        <div class="border border-slate-800 rounded-lg p-4">
+          <p class="text-sm font-medium mb-1" data-i18n="upload_options_heading">Opciones de Fase 2</p>
+          <p class="text-xs text-slate-500 mb-3" data-i18n="upload_options_note">Estos extras corren después…</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="enable_denoise" class="rounded" checked>
+              <span data-i18n="upload_option_denoise">Reducción de ruido</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="enable_diarization" class="rounded" checked>
+              <span data-i18n="upload_option_diarization">Identificación de hablantes</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" id="submit-btn" disabled class="w-full px-4 py-3 bg-emerald-600 disabled:bg-slate-700 disabled:cursor-not-allowed rounded font-medium transition" data-i18n="upload_submit">Subir y empezar transcripción</button>
+        <p id="upload-error" class="text-sm text-rose-400 hidden"></p>
+      </form>
+    </section>
+
+    <!-- Processing view -->
+    <section id="view-processing" class="view hidden">
+      <h2 class="text-2xl font-semibold mb-6" data-i18n="processing_heading">Procesando</h2>
+
+      <div id="status-block" class="border border-slate-800 rounded-lg p-5 mb-6">
+        <p id="status-text" class="text-lg"></p>
+      </div>
+
+      <!-- Phase 1 -->
+      <div id="phase1-block" class="mb-6 hidden">
+        <h3 class="text-sm font-medium text-slate-400 mb-2">Fase 1</h3>
+        <div id="chunks-container" class="border border-slate-800 rounded-lg p-4 max-h-96 overflow-y-auto space-y-3 text-sm"></div>
+        <a id="raw-download" href="#" class="hidden mt-4 inline-block px-4 py-2 bg-emerald-600 rounded font-medium" data-i18n="download_raw" download>Descargar transcripción cruda</a>
+      </div>
+
+      <!-- Phase 2 -->
+      <div id="phase2-block" class="mb-6 hidden">
+        <h3 class="text-sm font-medium text-slate-400 mb-2">Fase 2</h3>
+        <p id="phase2-status" class="text-sm text-slate-300"></p>
+        <a id="clean-download" href="#" class="hidden mt-4 inline-block px-4 py-2 bg-emerald-600 rounded font-medium" data-i18n="download_clean" download>Descargar transcripción procesada</a>
+      </div>
+
+      <!-- Phase 2 failure (split state from crash recovery) -->
+      <div id="phase2-failed-block" class="mb-6 hidden border border-amber-700 bg-amber-950/30 rounded-lg p-4">
+        <h3 class="text-sm font-semibold text-amber-300" data-i18n="error_phase2_heading">Fase 2 falló</h3>
+        <p id="phase2-error-msg" class="text-sm mt-1 text-slate-200"></p>
+      </div>
+
+      <!-- Error banner -->
+      <div id="error-banner" class="border border-rose-700 bg-rose-950/40 rounded-lg p-4 hidden">
+        <h3 class="text-sm font-semibold text-rose-300" data-i18n="error_banner_heading">Algo falló</h3>
+        <p id="error-msg" class="text-sm mt-1 text-slate-200"></p>
+        <button id="open-logs" class="mt-3 text-xs underline text-rose-300" data-i18n="error_view_logs">Ver logs / Contactar a TI</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-800 px-6 py-3 text-xs text-slate-500 flex justify-between">
+    <span>v0.1.0</span>
+    <button id="footer-logs" class="underline hover:text-slate-300" data-i18n="footer_view_logs">Ver logs</button>
+  </footer>
+
+  <!-- Logs modal -->
+  <div id="logs-modal" class="fixed inset-0 bg-black/70 hidden flex items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 rounded-lg max-w-3xl w-full max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-slate-800">
+        <h3 class="font-semibold" data-i18n="error_modal_heading">Logs recientes</h3>
+        <button id="logs-close" class="text-slate-400 hover:text-slate-100" data-i18n="error_modal_close">Cerrar</button>
+      </div>
+      <pre id="logs-content" class="flex-1 overflow-auto p-4 text-xs font-mono text-slate-300 whitespace-pre-wrap"></pre>
+      <div class="px-5 py-3 border-t border-slate-800 flex items-center justify-between gap-3">
+        <p class="text-xs text-slate-500" data-i18n="error_modal_help">Si el problema persiste…</p>
+        <button id="logs-copy" class="px-3 py-1.5 bg-slate-700 rounded text-sm" data-i18n="error_modal_copy">Copiar al portapapeles</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
