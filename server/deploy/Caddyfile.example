@@ -1,0 +1,40 @@
+# Caddy config for Steno Server.
+# Caddy auto-provisions TLS certificates: a self-signed cert for the
+# .local hostname (via `tls internal`) and a real Let's Encrypt cert
+# for the public Tailscale hostname.
+#
+# Steno Server itself listens on 127.0.0.1:8090 via the LaunchAgent,
+# so Caddy just reverse-proxies. Adjust hostnames to match your network.
+
+# LAN access — Bonjour name. The browser will prompt to trust the
+# self-signed cert the first time; after that it's seamless.
+mac-studio.local {
+    tls internal
+    reverse_proxy 127.0.0.1:8090
+
+    encode gzip
+
+    # Allow large uploads.
+    request_body {
+        max_size 500MB
+    }
+
+    # Pass through WebSocket upgrades for /ws/jobs/{id}.
+    @websockets {
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @websockets 127.0.0.1:8090
+}
+
+# Tailscale access — public-suffix hostname assigned by Tailscale.
+# Replace with your actual hostname.
+alans-mac-studio.tailcbc049.ts.net {
+    reverse_proxy 127.0.0.1:8090
+
+    encode gzip
+
+    request_body {
+        max_size 500MB
+    }
+}

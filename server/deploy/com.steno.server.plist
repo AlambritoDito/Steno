@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.steno.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>{{UV_PATH}}</string>
+        <string>run</string>
+        <string>--directory</string>
+        <string>{{REPO_PATH}}/server</string>
+        <string>main.py</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HF_TOKEN</key>
+        <string>{{HF_TOKEN}}</string>
+        <key>AUTH_PASSWORD</key>
+        <string>{{AUTH_PASSWORD}}</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>{{HOME}}/Library/Logs/steno-server/stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>{{HOME}}/Library/Logs/steno-server/stderr.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>{{REPO_PATH}}/server</string>
+</dict>
+</plist>
