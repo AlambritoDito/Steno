@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     auth_password: str | None = Field(default=None, validation_alias="AUTH_PASSWORD")
     session_cookie_name: str = "steno_session"
+    session_cookie_secure: bool = True  # production default; flipped off in tests
     session_duration_hours: int = 12
 
     # -- Logging -----------------------------------------------------------------

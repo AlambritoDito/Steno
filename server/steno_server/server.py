@@ -14,6 +14,8 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
+    Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -23,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import __version__
+from . import auth as auth_mod
 from . import i18n as i18n_mod
 from . import jobs as jobs_mod
 from . import storage as storage_mod
@@ -83,6 +86,7 @@ app = FastAPI(
     description="LAN/Tailscale transcription service backed by mlx-whisper.",
     lifespan=lifespan,
 )
+app.middleware("http")(auth_mod.auth_middleware)
 
 # Static assets and SPA root.
 _STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -130,6 +134,60 @@ async def get_i18n(lang: str) -> dict[str, str]:
     if lang not in settings.supported_languages:
         raise HTTPException(status_code=404, detail=f"Unsupported language: {lang}")
     return i18n_mod.load_locale(lang)
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints (only meaningful when AUTH_PASSWORD is set)
+# ---------------------------------------------------------------------------
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+class AuthStatusResponse(BaseModel):
+    auth_required: bool
+    authenticated: bool
+
+
+@app.get("/api/auth/status", response_model=AuthStatusResponse)
+async def auth_status(request: Request) -> AuthStatusResponse:
+    if not auth_mod.auth_enabled():
+        return AuthStatusResponse(auth_required=False, authenticated=True)
+    token = request.cookies.get(settings.session_cookie_name)
+    return AuthStatusResponse(
+        auth_required=True,
+        authenticated=auth_mod.is_valid(token),
+    )
+
+
+@app.post("/api/auth/login")
+async def auth_login(payload: LoginRequest, response: Response) -> JSONResponse:
+    if not auth_mod.auth_enabled():
+        # Auth not configured — login is a no-op.
+        return JSONResponse(content={"ok": True, "auth_required": False})
+    if not auth_mod.verify_password(payload.password):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    session = auth_mod.issue_session()
+    body = JSONResponse(content={"ok": True, "auth_required": True})
+    body.set_cookie(
+        key=settings.session_cookie_name,
+        value=session.token,
+        max_age=settings.session_duration_hours * 3600,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+    )
+    return body
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request) -> JSONResponse:
+    token = request.cookies.get(settings.session_cookie_name)
+    auth_mod.revoke_session(token)
+    body = JSONResponse(content={"ok": True})
+    body.delete_cookie(settings.session_cookie_name)
+    return body
 
 
 # ---------------------------------------------------------------------------
