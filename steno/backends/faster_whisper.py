@@ -27,6 +27,7 @@ class FasterWhisperBackend:
         if self._capabilities is None:
             info = {
                 "backend": self.name, "available": True, "cuda_available": False,
+                "cpu_available": None,
                 "fallback_reason": None, "validated": False,
             }
             try:
@@ -41,12 +42,19 @@ class FasterWhisperBackend:
                     info["fallback_reason"] = "cuda_unavailable"
                 elif self.requested_device == "auto":
                     info["fallback_reason"] = "cuda_unavailable"
+                if self.device == "cpu":
+                    info["cpu_available"] = "int8" in ct2.get_supported_compute_types("cpu")
+                    if self.requested_device != "cuda" and not info["cpu_available"]:
+                        info["available"] = False
+                        info["fallback_reason"] = "cpu_int8_unavailable"
             except (ImportError, OSError, RuntimeError) as exc:
                 # A CUDA probe failure can still leave a usable CPU runtime.
                 try:
                     ct2 = importlib.import_module("ctranslate2")
-                    info["available"] = "int8" in ct2.get_supported_compute_types("cpu")
+                    info["cpu_available"] = "int8" in ct2.get_supported_compute_types("cpu")
+                    info["available"] = info["cpu_available"]
                 except (ImportError, OSError, RuntimeError):
+                    info["cpu_available"] = False
                     info["available"] = False
                 if self.requested_device == "cuda":
                     info["available"] = False

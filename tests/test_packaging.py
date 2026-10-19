@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 import sys
+from types import SimpleNamespace
 import zipfile
 
 import pytest
@@ -70,6 +71,36 @@ def test_build_requires_cuda_on_windows():
     binaries = [args[index + 1] for index, value in enumerate(args) if value == "--add-binary"]
     assert "msvcp140.dll:." in binaries
     assert "runtime:cuda" in args
+    metadata = [args[index + 1] for index, value in enumerate(args) if value == "--copy-metadata"]
+    assert "setuptools" in metadata
+
+
+def test_native_preflight_fails_missing_windows_import_and_unsupported_cpu():
+    builder = module_from_file("backend_builder", ROOT / "scripts" / "build_python.py")
+    imported = []
+
+    def importer(name):
+        imported.append(name)
+        if name == "pkg_resources":
+            raise ModuleNotFoundError("No module named 'pkg_resources'")
+        return SimpleNamespace(get_portaudio_version=lambda: (1, "test runtime"))
+
+    with pytest.raises(ModuleNotFoundError, match="pkg_resources"):
+        builder.native_preflight("win32", importer)
+    assert "faster_whisper" not in imported
+    runtime = SimpleNamespace(get_portaudio_version=lambda: (1, "test runtime"),
+                              get_supported_compute_types=lambda device: {"float32"})
+    with pytest.raises(RuntimeError, match="CPU int8"):
+        builder.native_preflight("win32", lambda name: runtime)
+
+
+def test_native_preflight_queries_actual_cpu_support():
+    builder = module_from_file("backend_builder", ROOT / "scripts" / "build_python.py")
+    devices = []
+    runtime = SimpleNamespace(get_portaudio_version=lambda: (1, "test runtime"),
+                              get_supported_compute_types=lambda device: devices.append(device) or {"int8"})
+    builder.native_preflight("win32", lambda name: runtime)
+    assert devices == ["cpu"]
 
 
 def test_version_matches_all_manifests():

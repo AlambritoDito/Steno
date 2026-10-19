@@ -344,3 +344,14 @@ test('diagnostics export failures remain visible inside settings without a downl
     assert.equal(h.el('support-message').textContent, 'Could not create diagnostic archive');
     assert.equal(h.el('export-diagnostics-btn').disabled, false);
 });
+
+test('unavailable CPU INT8 reports its specific reason in English and Spanish', () => {
+    const h = harness(async () => response({}));
+    for (const lang of ['en', 'es']) {
+        h.context.t = JSON.parse(readFileSync(join(__dirname, `../locales/${lang}.json`), 'utf8'));
+        const message = h.context.fallbackDescription('cpu_int8_unavailable');
+        assert.equal(message, h.context.t.fallback_cpu_int8);
+        assert.match(message, /INT8/);
+        assert.notEqual(message, h.context.t.cpu_fallback);
+    }
+});

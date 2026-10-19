@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import secrets
 import subprocess
 import sys
@@ -22,6 +23,58 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def sanitize(message, token):
+    text = str(message).replace(token, "[redacted]") if token else str(message)
+    text = re.sub(r"(?i)bearer\s+[^\s\"']+", "Bearer [redacted]", text)
+    text = re.sub(r"\bhf_[A-Za-z0-9]+\b", "[redacted]", text)
+    return text[-12000:]
+
+
+def support_report(payload, token):
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        if any(token.encode() in archive.read(name) for name in archive.namelist()):
+            raise AssertionError("Diagnostics must redact launch credentials")
+        return json.loads(archive.read("diagnostic.json"))
+
+
+def validate_runtime(report, target):
+    assert report["is_frozen"], "Diagnostics must describe the bundled runtime"
+    packages = ["fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil"]
+    packages += ["mlx", "mlx-whisper", "mlx-metal"] if target == "darwin" else ["faster-whisper", "ctranslate2", "onnxruntime", "setuptools"]
+    assert all(report["runtime_versions"].get(name) for name in packages), report["runtime_versions"]
+    capabilities = report["transcriber"]
+    assert capabilities.get("available"), "Frozen inference runtime is unavailable"
+    if target == "win32" and capabilities.get("device") == "cpu":
+        assert capabilities.get("cpu_available"), "Frozen CTranslate2 CPU int8 probe failed"
+
+
+def retain_failure(url, token, support, error, stderr):
+    """Keep the server's redacted support ZIP, never recordings, settings or model data."""
+    try:
+        if url:
+            support = request(url + "/api/diagnostics/export", token)
+    except Exception:
+        pass  # Startup failures may not expose HTTP yet; preserve the bounded stderr.
+    report = None
+    if support:
+        try:
+            report = support_report(support, token)
+        except Exception:
+            support = None  # Never retain a ZIP that failed credential redaction.
+    summary = {key: report.get("transcriber", {}).get(key) for key in
+               ("backend", "device", "available", "cpu_available", "cuda_available", "fallback_reason", "diagnostic")} if report else {}
+    message = sanitize(f"Smoke failure: {error}\nRuntime: {json.dumps(summary)}\n{''.join(stderr)}", token)
+    print(message, file=sys.stderr, flush=True)
+    destination = os.environ.get("STENO_SMOKE_DIAGNOSTICS_DIR")
+    if destination:
+        directory = Path(destination)
+        directory.mkdir(parents=True, exist_ok=True)
+        name = f"smoke-{time.time_ns()}"
+        (directory / f"{name}.log").write_text(message, encoding="utf-8")
+        if support:
+            (directory / f"{name}-support.zip").write_bytes(support)
 
 
 def request(url, token, method="GET", body=None, content_type="application/json"):
@@ -49,6 +102,8 @@ def launch(binary, data_directory, *, offline=False):
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     lines = queue.Queue()
     errors = []
+    url = None
+    support = None
 
     def read_stdout():
         for line in process.stdout:
@@ -63,7 +118,6 @@ def launch(binary, data_directory, *, offline=False):
     threading.Thread(target=read_stderr, daemon=True).start()
     try:
         deadline = time.monotonic() + 120
-        url = None
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError("Backend exited: " + "".join(errors))
@@ -94,15 +148,13 @@ def launch(binary, data_directory, *, offline=False):
         assert b"Steno" in request(url + "/", token)
         print("PASS: native startup, authenticated readiness, unauthorized rejection, UI assets", flush=True)
         support = request(url + "/api/diagnostics/export", token)
-        with zipfile.ZipFile(io.BytesIO(support)) as archive:
-            report = json.loads(archive.read("diagnostic.json"))
-            assert report["is_frozen"], "Diagnostics must describe the bundled runtime"
-            packages = ["fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil"]
-            packages += ["mlx", "mlx-whisper", "mlx-metal"] if sys.platform == "darwin" else ["faster-whisper", "ctranslate2", "onnxruntime"]
-            assert all(report["runtime_versions"].get(name) for name in packages), report["runtime_versions"]
-            assert all(token.encode() not in archive.read(name) for name in archive.namelist()), "Diagnostics must redact launch credentials"
-        print("PASS: packaged support ZIP with native dependency versions and redacted credentials", flush=True)
+        report = support_report(support, token)
+        validate_runtime(report, sys.platform)
+        print("PASS: packaged support ZIP, native runtime availability and redacted credentials", flush=True)
         yield url, token
+    except Exception as error:
+        retain_failure(url, token, support, error, errors)
+        raise RuntimeError(sanitize(error, token)) from None
     finally:
         if process.poll() is None:
             process.stdin.close()
@@ -115,7 +167,7 @@ def launch(binary, data_directory, *, offline=False):
         process.stdout.close()
         process.stderr.close()
     if process.returncode != 0:
-        raise RuntimeError(f"Backend shutdown exit {process.returncode}: {''.join(errors)}")
+        raise RuntimeError(sanitize(f"Backend shutdown exit {process.returncode}: {''.join(errors)}", token))
     print("PASS: clean parent-owned shutdown", flush=True)
 
 

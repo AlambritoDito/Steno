@@ -35,6 +35,7 @@ This branch incorporates the desktop changes from PR #22, then replaces the unsa
 | Public model download inherits an invalid local HF credential | Explicit anonymous public downloads, independent of developer login. Confirmed by actual packaged tiny-model download. |
 | Electron data-path override fails when the directory does not exist | Create the native data folder before overriding Electron user/session paths; regression enforces the actual first-launch precondition. |
 | Windows small-model validation requires a file absent from official repositories | Treat preprocessor configuration as optional and validate the model/tokenizer/vocabulary files actually published by Systran. |
+| Windows package starts but CTranslate2 cannot import `pkg_resources` | Pin the compatible setuptools runtime and fail the build on native import/probe failure before compressing installers. |
 | Fixed-port cleanup can terminate an unrelated process | Bind an available loopback socket; terminate only the shell's child process. Test dynamic binding and owned shutdown. |
 | Dynamic port changes browser storage origin | Atomic application storage survives port changes and preserves per-input drafts. The close acknowledgment protocol waits for saved notes; failed saves cancel exit. Node regressions cover both paths. |
 
@@ -42,8 +43,8 @@ This branch incorporates the desktop changes from PR #22, then replaces the unsa
 
 Environment: Apple Silicon M4 Pro, macOS 27.0.1, Python 3.12. Tests use isolated temporary data and do not inspect or modify personal recordings.
 
-- Complete Python suite: 201 tests passed after the final runtime changes; final CI links are reported in the pull request.
-- Complete JavaScript suite: 38 tests passed, covering Electron process ownership and frontend session/note/job behavior. Actual source Electron relaunched on a different negotiated port, restored Spanish/last session/notes, and persisted a note when closed immediately after typing. The corrected packaged app also reached setup from a previously nonexistent data directory. A subsequent GUI check was interrupted by the Mac locking.
+- Complete Python suite: 207 tests passed on Mac; one native Windows-only regression is skipped there; final CI links are reported in the pull request.
+- Complete JavaScript suite: 39 tests passed, covering Electron process ownership and frontend session/note/job behavior. Actual source Electron relaunched on a different negotiated port, restored Spanish/last session/notes, and persisted a note when closed immediately after typing. The corrected packaged app also reached setup from a previously nonexistent data directory. A subsequent GUI check was interrupted by the Mac locking.
 - Real Chrome checks exercised setup, English/Spanish UI, saved history, note editing, session isolation, audio controls and failed-job actions using an explicit fixture. The fixture bypassed model setup only; it is not a microphone or GPU test.
 - A native PyInstaller backend downloaded `tiny`, warmed MLX/Metal, transcribed synthetic spoken audio, reported `validated=true`, rejected an incorrect auth token and shut down when its parent's pipe closed.
 - The same frozen backend then restarted with a new token and port, using the same isolated data directory with `HF_HUB_OFFLINE=1`. Saved notes/transcript/source audio survived and actual Metal retranscription passed again. This guards Hugging Face network access; it does not simulate a physically disconnected network.

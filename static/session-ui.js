@@ -704,6 +704,7 @@ function fallbackDescription(reason) {
         cuda_unavailable: ["fallback_cuda_unavailable", "No compatible NVIDIA GPU or CUDA driver was detected. Using CPU."],
         cuda_initialization_failed: ["fallback_cuda_initialization", "The NVIDIA GPU could not initialize CUDA. Check its driver and CUDA libraries; using CPU."],
         cuda_probe_failed: ["fallback_cuda_probe", "CUDA detection failed. Check the NVIDIA driver; using CPU."],
+        cpu_int8_unavailable: ["fallback_cpu_int8", "CPU transcription is unavailable: this computer does not support the required INT8 mode."],
         runtime_unavailable: ["fallback_runtime", "The transcription runtime is unavailable. Reinstall Steno."],
     };
     return uiText(...(reasons[reason] || ["cpu_fallback", "CUDA is unavailable. Processing on CPU."]));

@@ -1,4 +1,5 @@
 """Build the backend natively. Run using `uv run --frozen --extra build` on macOS/Windows."""
+import importlib
 import os
 from pathlib import Path
 import platform
@@ -6,6 +7,29 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def native_preflight(target, importer=importlib.import_module):
+    """Fail before downloads/packaging when the installed native engine cannot run."""
+    if target not in {"darwin", "win32"}:
+        raise RuntimeError("Only native macOS arm64 and Windows x64 builds are supported")
+    importer("av")
+    importer("sounddevice").get_portaudio_version()
+    if target == "win32":
+        # CTranslate2 4.6 imports pkg_resources; setuptools 82 removed it.
+        importer("pkg_resources")
+        ct2 = importer("ctranslate2")
+        importer("faster_whisper")
+        importer("onnxruntime")
+        if "int8" not in ct2.get_supported_compute_types("cpu"):
+            raise RuntimeError("Windows native runtime does not support CPU int8 inference")
+    else:
+        mx = importer("mlx.core")
+        importer("mlx_whisper")
+        if not mx.metal.is_available():
+            raise RuntimeError("MLX Metal is unavailable on this build host")
+        mx.eval(mx.array([1.0]) + 1)
+    print("PASS: source native imports and inference device preflight", flush=True)
 
 
 def collect_msvc_runtime():
@@ -53,9 +77,9 @@ def build_arguments(target, cuda_directory=None, msvc_dlls=()):
     elif target == "win32":
         if not cuda_directory:
             raise ValueError("Windows builds must include the pinned CUDA runtime")
-        args += ["--collect-all", "faster_whisper", "--collect-all", "ctranslate2",
+        args += ["--hidden-import", "pkg_resources", "--collect-all", "faster_whisper", "--collect-all", "ctranslate2",
                  "--collect-all", "onnxruntime", "--add-data", f"{cuda_directory}:cuda"]
-        for distribution in ("faster-whisper", "ctranslate2", "onnxruntime"):
+        for distribution in ("faster-whisper", "ctranslate2", "onnxruntime", "setuptools"):
             args += ["--copy-metadata", distribution]
         for dll in msvc_dlls:
             args += ["--add-binary", f"{dll}:."]
@@ -68,6 +92,7 @@ def build_arguments(target, cuda_directory=None, msvc_dlls=()):
 def main():
     if sys.platform == "darwin" and platform.machine() != "arm64":
         raise RuntimeError("Build macOS on Apple Silicon without Rosetta")
+    native_preflight(sys.platform)
     cuda = None
     msvc = []
     if sys.platform == "win32":

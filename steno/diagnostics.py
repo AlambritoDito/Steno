@@ -19,7 +19,7 @@ from steno.config import Config, _detect_hardware
 LOG_NAMES = ("steno.log", "electron.log", "steno.log.1", "electron.log.old", "steno.log.2", "steno.log.3")
 MAX_LOG_FILE_BYTES = 512 * 1024
 MAX_LOG_TOTAL_BYTES = 2 * 1024 * 1024
-RUNTIME_PACKAGES = ("fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil",
+RUNTIME_PACKAGES = ("fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil", "setuptools",
                     "mlx", "mlx-whisper", "mlx-metal", "faster-whisper", "ctranslate2", "onnxruntime")
 
 

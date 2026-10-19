@@ -56,6 +56,30 @@ def test_missing_cuda_uses_cpu_int8(monkeypatch, tmp_path):
     assert backend.capabilities()["device"] == "cpu"
     assert backend.capabilities()["fallback_reason"] == "cuda_unavailable"
     assert calls[0][1]["compute_type"] == "int8"
+    assert backend.capabilities()["cpu_available"] is True
+
+
+def test_cpu_capability_requires_actual_int8_runtime_probe(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ctranslate2", SimpleNamespace(
+        get_cuda_device_count=lambda: 0,
+        get_supported_compute_types=lambda device: {"float32"},
+    ))
+    capabilities = FasterWhisperBackend().capabilities()
+    assert not capabilities["available"]
+    assert capabilities["cpu_available"] is False
+    assert capabilities["fallback_reason"] == "cpu_int8_unavailable"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows native runtime regression")
+def test_installed_windows_runtime_imports_and_supports_cpu_without_model():
+    import ctranslate2
+    import faster_whisper
+    import onnxruntime
+    import pkg_resources
+    assert "int8" in ctranslate2.get_supported_compute_types("cpu")
+    assert faster_whisper.WhisperModel is not None
+    assert "CPUExecutionProvider" in onnxruntime.get_available_providers()
+    assert callable(pkg_resources.resource_filename)
 
 
 def test_missing_cuda_dll_falls_back_only_during_warmup(monkeypatch, tmp_path):
