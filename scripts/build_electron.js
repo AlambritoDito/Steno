@@ -9,4 +9,11 @@ const result = spawnSync(process.execPath, [cli, ...platform, "--publish", "neve
   env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" },
 });
 if (result.error) throw result.error;
-process.exit(result.status ?? 1);
+if (result.status !== 0) process.exit(result.status ?? 1);
+if (process.platform === "win32") {
+  const portable = spawnSync(path.join(__dirname, "..", ".venv", "Scripts", "python.exe"), [path.join(__dirname, "build_portable.py")], {
+    cwd: path.join(__dirname, ".."), stdio: "inherit",
+  });
+  if (portable.error) throw portable.error;
+  process.exit(portable.status ?? 1);
+}

@@ -221,6 +221,7 @@ def _download_with_progress(repo: str, progress_state: dict | None = None) -> No
 
     try:
         state.update({"bytes_downloaded": 0, "bytes_total": 0, "status": "downloading"})
+        logger.info("event=model_download_started model=%s", repo)
         check_cancel()
         backend = "mlx" if repo.startswith("mlx-community/") else "faster-whisper"
         patterns = (
@@ -234,11 +235,14 @@ def _download_with_progress(repo: str, progress_state: dict | None = None) -> No
         check_cancel()
         validate_model_files(Path(path), backend)
         state["status"] = "complete"
+        logger.info("event=model_download_completed model=%s bytes=%d", repo, state.get("bytes_downloaded", 0))
     except DownloadCancelled:
         state["status"] = "cancelled"
+        logger.info("event=model_download_cancelled model=%s", repo)
         raise
     except Exception as exc:
         state.update({"status": "error", "error": str(exc)})
+        logger.error("event=model_download_failed model=%s error_type=%s", repo, type(exc).__name__)
         raise
     finally:
         _DOWNLOAD_LOCK.release()

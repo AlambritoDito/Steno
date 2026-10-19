@@ -450,3 +450,21 @@ def test_checkpoint_rejects_foreign_take_and_invalid_batch_without_advancing_cur
     with pytest.raises(ValueError, match="Invalid checkpoint segment"):
         store.save_file_batch(job["id"], take["id"], 16000, [{"start": 0, "end": float("nan"), "text": "bad"}])
     assert store.file_checkpoint(job["id"], take["id"])["processed_frames"] == 0
+
+
+@pytest.mark.asyncio
+async def test_job_logs_lifecycle_metadata_without_error_text_or_user_content(monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="steno.jobs")
+    session = Session("private-session-name")
+    take = file_take(session)
+    def fail(self, path):
+        raise RuntimeError("private-error-text")
+    monkeypatch.setattr(FakeTranscriber, "transcribe_file", fail)
+    jobs = JobManager()
+    jobs.submit(session.session_id, "file", {"model": "tiny", "take_id": take["id"]})
+    await jobs.task
+    records = "\n".join(record.getMessage() for record in caplog.records if record.name == "steno.jobs")
+    assert "event=job_queued" in records and "event=job_started" in records
+    assert "event=job_failed" in records and "error_type=RuntimeError" in records
+    assert "private-session-name" not in records and "private-error-text" not in records

@@ -160,5 +160,11 @@
   "yes": "Sí",
   "no": "No",
   "close_recording_timeout": "La grabación todavía no se detuvo. Detenla antes de cerrar Steno.",
-  "close_save_timeout": "Las notas siguen guardándose. Intenta cerrar Steno de nuevo."
+  "close_save_timeout": "Las notas siguen guardándose. Intenta cerrar Steno de nuevo.",
+  "settings_support": "Ayuda y diagnóstico",
+  "settings_support_description": "Si Steno falla, exporta un ZIP con información técnica y logs recientes para compartir con soporte. No incluye tus grabaciones ni notas.",
+  "open_logs_folder": "Abrir carpeta de logs",
+  "export_diagnostics": "Exportar diagnóstico",
+  "diagnostics_logs": "Carpeta de logs",
+  "open_logs_failed": "No se pudo abrir la carpeta de logs."
 }

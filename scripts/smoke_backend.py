@@ -6,6 +6,7 @@ persisted data and cached inference after restart with HF_HUB_OFFLINE=1.
 """
 import argparse
 from contextlib import contextmanager
+import io
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -91,6 +93,15 @@ def launch(binary, data_directory, *, offline=False):
             raise AssertionError("Backend accepted an incorrect token")
         assert b"Steno" in request(url + "/", token)
         print("PASS: native startup, authenticated readiness, unauthorized rejection, UI assets", flush=True)
+        support = request(url + "/api/diagnostics/export", token)
+        with zipfile.ZipFile(io.BytesIO(support)) as archive:
+            report = json.loads(archive.read("diagnostic.json"))
+            assert report["is_frozen"], "Diagnostics must describe the bundled runtime"
+            packages = ["fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil"]
+            packages += ["mlx", "mlx-whisper", "mlx-metal"] if sys.platform == "darwin" else ["faster-whisper", "ctranslate2", "onnxruntime"]
+            assert all(report["runtime_versions"].get(name) for name in packages), report["runtime_versions"]
+            assert all(token.encode() not in archive.read(name) for name in archive.namelist()), "Diagnostics must redact launch credentials"
+        print("PASS: packaged support ZIP with native dependency versions and redacted credentials", flush=True)
         yield url, token
     finally:
         if process.poll() is None:

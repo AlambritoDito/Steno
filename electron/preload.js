@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     keys: () => storageCall("keys"),
   },
   closeReady: (success) => ipcRenderer.send("close-ready", success === true),
+  openLogs: () => ipcRenderer.invoke("open-logs"),
 });
 ipcRenderer.on("before-close", () => {
   window.dispatchEvent(new Event("steno-before-close"));

@@ -1,10 +1,10 @@
 """Desktop HTTP API. Jobs own inference, sessions own storage, and the UI owns no audio."""
 
 import asyncio
+import json
 import logging
 import os
-import platform
-import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +17,7 @@ from packaging.version import InvalidVersion, Version
 from steno.audio import AudioCapture, AudioCaptureError, PORTAUDIO_AVAILABLE, _portaudio_error
 from steno.config import Config, WHISPER_MODELS, SUPPORTED_AUDIO_EXTENSIONS, _detect_hardware, recommend_model, default_backend
 from steno.i18n import load_locale, get_supported_languages
+from steno.diagnostics import build_support_zip, collect_diagnostics
 from steno.jobs import JobManager, BusyError
 from steno.security import LocalSecurity
 from steno.session import Session, list_sessions, safe_path, validate_id, import_legacy_sessions
@@ -41,6 +42,8 @@ async def lifespan(app):
     app.state.setup_complete = settings.get("setup_complete", False) and Config.model_is_downloaded(model)
     app.state.jobs = JobManager(_audio_capture)
     app.state.model_busy = False
+    diagnostic = await asyncio.to_thread(collect_diagnostics, APP_VERSION, app.state.transcriber, PORTAUDIO_AVAILABLE)
+    logger.info("event=startup_diagnostics %s", json.dumps(diagnostic, ensure_ascii=False))
     await app.state.jobs.recover()
     try:
         yield
@@ -51,6 +54,24 @@ async def lifespan(app):
 app = FastAPI(title="Steno", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(LocalSecurity)
 app.mount("/static", StaticFiles(directory=str(Config.static_path())), name="static")
+
+
+@app.middleware("http")
+async def log_request_metadata(request, call_next):
+    """Record actions/errors without URLs, query strings, credentials, or bodies."""
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        route = getattr(request.scope.get("route"), "path", "<unmatched>")
+        logger.error("event=request_failed method=%s route=%s error_type=%s elapsed_ms=%d",
+                     request.method, route, type(exc).__name__, round((time.monotonic() - started) * 1000))
+        raise
+    route = getattr(request.scope.get("route"), "path", "<unmatched>")
+    if request.method not in {"GET", "HEAD", "OPTIONS"} or response.status_code >= 400 or "export" in route:
+        logger.info("event=request method=%s route=%s status=%d elapsed_ms=%d",
+                    request.method, route, response.status_code, round((time.monotonic() - started) * 1000))
+    return response
 
 
 def manager():
@@ -96,10 +117,12 @@ async def activate_candidate(repo, settings):
     previous = app.state.transcriber
     was_loaded = previous.is_loaded()
     candidate = Transcriber(model_name=repo)
+    logger.info("event=model_activation_started model=%s", repo)
     try:
         await asyncio.to_thread(candidate.warmup)
         Config.save_settings(settings)
-    except BaseException:
+    except BaseException as exc:
+        logger.error("event=model_activation_failed model=%s error_type=%s", repo, type(exc).__name__)
         try:
             await asyncio.to_thread(candidate.unload)
             if was_loaded and not previous.is_loaded():
@@ -109,6 +132,7 @@ async def activate_candidate(repo, settings):
         raise
     app.state.transcriber = candidate
     app.state.setup_complete = settings.get("setup_complete", app.state.setup_complete)
+    logger.info("event=model_activation_completed model=%s", repo)
 
 
 @app.exception_handler(ValueError)
@@ -510,11 +534,17 @@ async def reset_app():
 
 @app.get("/api/diagnostics")
 async def diagnostics():
-    return {"app_version": APP_VERSION, "platform": platform.platform(),
-            "python_version": sys.version, "is_frozen": Config.is_frozen(),
-            "portaudio_available": PORTAUDIO_AVAILABLE,
-            "transcriber": app.state.transcriber.get_model_info(),
-            "data_dir": str(Config.data_dir()), "sessions_path": str(Config.sessions_path())}
+    return await asyncio.to_thread(collect_diagnostics, APP_VERSION, app.state.transcriber, PORTAUDIO_AVAILABLE)
+
+
+@app.get("/api/diagnostics/export")
+async def export_diagnostics():
+    report = await diagnostics()
+    archive = await asyncio.to_thread(build_support_zip, report)
+    return Response(archive, media_type="application/zip", headers={
+        "Content-Disposition": 'attachment; filename="steno-diagnostics.zip"',
+        "Cache-Control": "no-store",
+    })
 
 
 @app.get("/api/debug/info")

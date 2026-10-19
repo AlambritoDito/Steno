@@ -86,7 +86,7 @@ def test_invalid_legacy_utf8_left_untouched(storage_root):
 
 def test_legacy_unusual_filename_imported(storage_root):
     path = storage_root / "clase física (1).md"
-    path.write_text("# Física\ncontenido", encoding="utf-8")
+    path.write_text("# Física\ncontenido", encoding="utf-8", newline="")
     sessions = list_sessions()
     assert sessions[0]["id"].startswith("legacy-")
     assert Session.load(sessions[0]["id"]).to_markdown() == "# Física\ncontenido"
@@ -148,7 +148,7 @@ def test_legacy_local_images_are_portable_without_modifying_original(storage_roo
     image.parent.mkdir(parents=True)
     image.write_bytes(b"legacy image")
     original = f"# Legacy\n![pic](/api/sessions/{session_id}/images/example.png)\nAFTER"
-    (storage_root / f"{session_id}.md").write_text(original)
+    (storage_root / f"{session_id}.md").write_text(original, encoding="utf-8", newline="")
     session = Session.load(session_id)
     assert "data:image/png;base64," in session.to_markdown(portable=True)
     assert session.to_dict()["legacy_markdown"] == original

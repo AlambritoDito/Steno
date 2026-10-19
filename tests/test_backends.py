@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from steno.backends.base import BackendInferenceError, BackendUnavailableError, decode_audio, iter_audio_chunks
+from steno.backends.base import BackendInferenceError, BackendUnavailableError, decode_audio, iter_audio_chunks, validate_model_files
 from steno.backends.faster_whisper import FasterWhisperBackend
 from steno.backends.mlx import MLXBackend
 
@@ -134,3 +134,30 @@ def test_decode_iterator_bounds_memory_and_keeps_final_partial_window(tmp_path):
     assert [offset for offset, _ in chunks] == [0, 480000, 960000]
     assert [len(audio) for _, audio in chunks] == [480000, 480000, 16000]
     assert all(np.allclose(audio, 1000 / 32768) for _, audio in chunks)
+
+
+@pytest.mark.parametrize("vocabulary,content,preprocessor", [
+    ("vocabulary.txt", "token\n", None),
+    ("vocabulary.json", '["token"]', '{"feature_size": 128}'),
+])
+def test_ct2_validator_accepts_official_small_and_large_model_layouts(tmp_path, vocabulary, content, preprocessor):
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "tokenizer.json").write_text("{}")
+    (tmp_path / "model.bin").write_bytes(b"weights")
+    (tmp_path / vocabulary).write_text(content)
+    if preprocessor:
+        (tmp_path / "preprocessor_config.json").write_text(preprocessor)
+    validate_model_files(tmp_path, "faster-whisper")
+    (tmp_path / vocabulary).unlink()
+    with pytest.raises(ValueError, match="vocabulary is missing"):
+        validate_model_files(tmp_path, "faster-whisper")
+
+
+def test_ct2_validator_checks_optional_preprocessor_integrity(tmp_path):
+    (tmp_path / "config.json").write_text("{}")
+    (tmp_path / "tokenizer.json").write_text("{}")
+    (tmp_path / "model.bin").write_bytes(b"weights")
+    (tmp_path / "vocabulary.txt").write_text("token\n")
+    (tmp_path / "preprocessor_config.json").write_text("[]")
+    with pytest.raises(ValueError, match="preprocessor_config"):
+        validate_model_files(tmp_path, "faster-whisper")

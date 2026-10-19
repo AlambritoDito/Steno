@@ -26,6 +26,7 @@ flowchart LR
 - `jobs.py`: exclusive microphone ownership, immutable per-job model/language/device settings, one inference worker, durable status/cursors, cooperative cancellation and restart recovery. Recording reads bounded ranges of archived audio, preserving the final partial range.
 - `storage.py` / `session.py`: SQLite transactions, schema version, stable IDs, editable notes, transcript segments with offsets and take IDs, jobs, assets, legacy import and portable exports. An interrupted deletion is retried through a durable deletion ledger.
 - `transcriber.py` / `backends/`: serialized model lifecycle and MLX / faster-whisper implementations. A new backend implements `capabilities`, `load`, `transcribe` and `unload`; inference takes mono float32 samples at 16 kHz and returns `{start, end, text}` offsets in seconds. Native imports are lazy and platform dependencies are conditional.
+- `diagnostics.py`: runtime and hardware metadata, a bounded NVIDIA inventory query, credential redaction and support ZIPs containing only allowlisted log tails.
 - `config.py`: native paths, model catalog/repositories, settings replacement/recovery, hardware probes and validated local snapshots. Model presence alone is not successful native inference.
 - `server.py` / `security.py`: request validation, loopback authentication, local assets and job/session routes. `static/index.html` and `static/session-ui.js` render the UI without a frontend build step; marked and DOMPurify are vendored.
 
@@ -45,6 +46,7 @@ The source upload reserves its session while copying to app storage before queue
 |---|---|---|
 | GET | `/api/health`, `/api/status` | Readiness/version, engine capabilities, recording/setup status |
 | GET | `/api/hardware`, `/api/devices` | Hardware/model recommendations and microphones |
+| GET | `/api/diagnostics`, `/api/diagnostics/export` | Runtime/hardware/log paths as JSON, or a bounded support ZIP; desktop authentication required |
 | GET | `/api/models`, `/api/download-progress` | Verified cache state and download progress |
 | POST | `/api/setup/select-model`, `/api/models/download` | Download/validate a model; setup also warms the engine |
 | POST | `/api/models/download/cancel`, `/api/models/active` | Cooperative download cancellation; idle-only activation |
@@ -66,6 +68,12 @@ Desktop preferences and unsubmitted note drafts use a restricted, atomic main-pr
 Jobs use `queued → running → completed/failed`, with `cancelling → cancelled`. Native calls are not forcibly interrupted; cancelled results are discarded before persistence. Failure does not delete source audio. Retry is restricted to terminal failed/cancelled jobs. File results expose `count`, `take_ids` and effective `capabilities`; retrieve transcript text from the structured session state.
 
 `/ws/{session_id}` accepts `ping`, `start` (`device_index`, `language`, `mode`), `stop`, and timestamped `note`. It emits `status` (`recording`, `processing`, `job_id`, `has_audio`), `transcript` (`text`, `start`, `end`, `timestamp`), `elapsed`, `note_saved`, and `error`. Only the connection that started recording may stop it. Disconnecting an observer does not stop another connection's recording; disconnecting the owner stops capture and retains processing.
+
+## Portable Windows and diagnostics
+
+The Windows portable ZIP contains the complete application and a versioned `portable.json` marker beside `Steno.exe`. Only that packaged edition selects the adjacent `Steno Data` folder. Installed Windows uses `%LOCALAPPDATA%/Steno`; `STENO_DATA_DIR` explicitly overrides either location. Startup creates and write-tests the directory before configuring Electron. The packaging step injects the marker into the ZIP without changing the NSIS input.
+
+Python and Electron rotate their logs inside the selected data folder. Lifecycle events record startup, model selection/download, recording, job checkpoints, cancellation and failure metadata. HTTP action/error logs use route templates and omit request bodies and query strings. The support export includes hardware, runtime versions, engine state and a maximum of 2 MiB of allowlisted log tails (512 KiB per file). It excludes the session database, notes, recordings, models and settings, skips symlinks, and redacts recognizable credentials. Export is an explicit local download; nothing is uploaded automatically.
 
 ## Tests
 

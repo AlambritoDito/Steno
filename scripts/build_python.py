@@ -35,22 +35,28 @@ def build_arguments(target, cuda_directory=None, msvc_dlls=()):
         "--add-data", f"{ROOT / 'static'}:static", "--add-data", f"{ROOT / 'locales'}:locales",
         "--add-data", f"{ROOT / 'LICENSE'}:licenses", "--collect-data", "certifi",
         "--collect-all", "av", "--collect-all", "sounddevice", "--collect-all", "_sounddevice_data",
-        "--hidden-import", "psutil", "--collect-all", "tiktoken",
-        "--hidden-import", "tiktoken_ext.openai_public",
+        "--hidden-import", "psutil",
         "--hidden-import", "uvicorn.logging", "--hidden-import", "uvicorn.loops.auto",
         "--hidden-import", "uvicorn.protocols.http.auto", "--hidden-import", "uvicorn.protocols.http.h11_impl",
         "--hidden-import", "uvicorn.protocols.websockets.auto", "--hidden-import", "uvicorn.protocols.websockets.websockets_impl",
         "--hidden-import", "uvicorn.lifespan.on", "--hidden-import", "anyio._backends._asyncio",
     ]
+    for distribution in ("fastapi", "numpy", "av", "sounddevice", "huggingface-hub", "psutil"):
+        args += ["--copy-metadata", distribution]
     if target == "darwin":
         args += ["--target-arch", "arm64", "--collect-all", "mlx", "--hidden-import", "mlx_whisper",
+                 "--collect-all", "tiktoken", "--hidden-import", "tiktoken_ext.openai_public",
                  "--collect-data", "mlx_whisper", "--hidden-import", "scipy.signal",
                  "--hidden-import", "numba", "--copy-metadata", "mlx-metal"]
+        for distribution in ("mlx", "mlx-whisper"):
+            args += ["--copy-metadata", distribution]
     elif target == "win32":
         if not cuda_directory:
             raise ValueError("Windows builds must include the pinned CUDA runtime")
         args += ["--collect-all", "faster_whisper", "--collect-all", "ctranslate2",
                  "--collect-all", "onnxruntime", "--add-data", f"{cuda_directory}:cuda"]
+        for distribution in ("faster-whisper", "ctranslate2", "onnxruntime"):
+            args += ["--copy-metadata", distribution]
         for dll in msvc_dlls:
             args += ["--add-binary", f"{dll}:."]
     else:

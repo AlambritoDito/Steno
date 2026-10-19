@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 
 release = Path(__file__).resolve().parents[1] / "release"
-artifacts = sorted([*release.glob("*.dmg"), *release.glob("*.exe")])
+artifacts = sorted([*release.glob("*.dmg"), *release.glob("*.exe"), *release.glob("*-portable.zip")])
 if not artifacts:
     raise SystemExit("No installer artifacts found")
 lines = []

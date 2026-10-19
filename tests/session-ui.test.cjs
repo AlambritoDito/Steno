@@ -298,3 +298,49 @@ test('timestamped notes remain visible until acknowledged and preserve edits mad
     h.context.handleWSMessage({ type: 'error', message: 'disk full' });
     assert.equal(h.el('light-note-input').value, 'keep after error');
 });
+
+test('logs action is hidden in browsers and available only through the desktop bridge', async () => {
+    const browser = harness(async () => response({}));
+    browser.context.applySessionI18n();
+    assert.equal(browser.el('open-logs-btn').hidden, true);
+    await browser.context.openLogsFolder();
+    let calls = 0;
+    const desktop = harness(async () => response({}), { openLogs: async () => { calls++; return { ok: true }; } });
+    desktop.context.applySessionI18n();
+    assert.equal(desktop.el('open-logs-btn').hidden, false);
+    await desktop.context.openLogsFolder();
+    assert.equal(calls, 1);
+    assert.equal(desktop.el('open-logs-btn').disabled, false);
+});
+
+test('desktop logs errors are visible inside the settings modal', async () => {
+    const h = harness(async () => response({}), { openLogs: async () => ({ ok: false, error: 'Folder unavailable' }) });
+    await h.context.openLogsFolder();
+    assert.equal(h.el('support-message').hidden, false);
+    assert.equal(h.el('support-message').textContent, 'Folder unavailable');
+    assert.equal(h.el('open-logs-btn').disabled, false);
+});
+
+test('diagnostics downloads the protected ZIP endpoint and reenables the button', async () => {
+    const calls = [];
+    const h = harness(async url => { calls.push(url); return response({}); });
+    const anchor = new Element('a');
+    h.context.document.createElement = () => anchor;
+    await h.context.exportDiagnostics();
+    assert.deepEqual(calls, ['/api/diagnostics/export']);
+    assert.equal(anchor.download, 'steno-diagnostics.zip');
+    assert.equal(anchor.href, 'blob:test');
+    assert.equal(anchor.clicked, true);
+    assert.equal(h.el('export-diagnostics-btn').disabled, false);
+});
+
+test('diagnostics export failures remain visible inside settings without a download', async () => {
+    const h = harness(async () => ({ ok: false, json: async () => ({ detail: 'Could not create diagnostic archive' }) }));
+    let createdDownload = false;
+    h.context.document.createElement = () => { createdDownload = true; return new Element('a'); };
+    await h.context.exportDiagnostics();
+    assert.equal(createdDownload, false);
+    assert.equal(h.el('support-message').hidden, false);
+    assert.equal(h.el('support-message').textContent, 'Could not create diagnostic archive');
+    assert.equal(h.el('export-diagnostics-btn').disabled, false);
+});

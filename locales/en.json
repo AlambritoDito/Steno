@@ -160,5 +160,11 @@
   "yes": "Yes",
   "no": "No",
   "close_recording_timeout": "Recording has not stopped yet. Stop it before closing Steno.",
-  "close_save_timeout": "Notes are still saving. Try closing Steno again."
+  "close_save_timeout": "Notes are still saving. Try closing Steno again.",
+  "settings_support": "Help and diagnostics",
+  "settings_support_description": "If Steno fails, export a ZIP with technical information and recent logs to share with support. Your recordings and notes are not included.",
+  "open_logs_folder": "Open logs folder",
+  "export_diagnostics": "Export diagnostics",
+  "diagnostics_logs": "Logs folder",
+  "open_logs_failed": "Could not open the logs folder."
 }

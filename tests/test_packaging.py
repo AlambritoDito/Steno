@@ -87,3 +87,24 @@ def test_tracked_native_icons_are_readable():
     assert ico[:4] == b"\x00\x00\x01\x00"
     assert icns[:4] == b"icns"
     assert int.from_bytes(icns[4:8], "big") == len(icns)
+
+
+def test_portable_zip_has_marker_and_guide_without_mutating_installer_input(tmp_path):
+    builder = module_from_file("portable_builder", ROOT / "scripts" / "build_portable.py")
+    source = tmp_path / "win-unpacked"
+    source.mkdir()
+    (source / "Steno.exe").write_bytes(b"native executable fixture")
+    (source / "resources").mkdir()
+    (source / "resources" / "app.asar").write_bytes(b"application fixture")
+    target = builder.build_portable(source, tmp_path / "portable.zip", "1.0.0-beta.1")
+    assert not (source / "portable.json").exists()
+    assert not (source / "Steno Data").exists()
+    with zipfile.ZipFile(target) as archive:
+        assert archive.read("Steno/Steno.exe") == b"native executable fixture"
+        assert archive.read("Steno/resources/app.asar") == b"application fixture"
+        assert json.loads(archive.read("Steno/portable.json"))["format"] == "steno-portable"
+        assert archive.read("Steno/LEEME.txt") == (ROOT / "docs" / "PRUEBA-WINDOWS.md").read_bytes()
+    (source / "Steno Data").mkdir()
+    with pytest.raises(RuntimeError, match="used or modified"):
+        builder.build_portable(source, tmp_path / "unsafe.zip", "1.0.0-beta.1")
+    assert not (tmp_path / "unsafe.zip").exists()

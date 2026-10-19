@@ -11,7 +11,7 @@ Local desktop transcription for classes and meetings. Record a microphone, trans
 | Platform | Transcription | Distribution target |
 |---|---|---|
 | Apple Silicon, macOS 27 | MLX / Metal | ARM64 DMG; validation target macOS 27.0.1 |
-| Windows 11 x64 | faster-whisper / CTranslate2, NVIDIA CUDA or CPU int8 | Per-user NSIS installer |
+| Windows 11 x64 | faster-whisper / CTranslate2, NVIDIA CUDA or CPU int8 | Per-user NSIS installer and portable ZIP |
 
 Intel Macs, Windows ARM, Windows 10, Linux and the separate Steno Server product are outside this release's support matrix. CPU transcription is supported on Windows but may be slower than real time.
 
@@ -34,7 +34,7 @@ System audio capture for Zoom/Meet/Teams, speaker identification, full-text sear
 
 ## Install and first launch
 
-When a beta installer is available, download the file matching your platform from Releases. On Mac, open the DMG and drag Steno into Applications. On Windows, run the NSIS installer under your own user account.
+When a beta installer is available, download the file matching your platform from Releases. On Mac, open the DMG and drag Steno into Applications. On Windows, run the NSIS installer under your own user account, or extract the complete portable ZIP into a writable folder and open `Steno.exe`. The portable edition creates `Steno Data` beside the executable. See the [plain-language Windows testing guide](docs/PRUEBA-WINDOWS.md).
 
 These builds have **no public code-signing certificate or notarization**. macOS may require allowing Steno in System Settings → Privacy & Security after attempting to open it. Windows may display an unrecognized-publisher/SmartScreen warning. Use only the project's release assets and compare their SHA-256 checksums. No instruction to disable system-wide protection is required. Managed devices may prohibit unsigned applications.
 
@@ -44,7 +44,7 @@ On first launch, select a microphone and a model. The model download needs inter
 
 Audio, notes and transcripts remain local. Model downloads contact Hugging Face; update checks at launch and every four hours contact GitHub (failure does not prevent offline use). There are no accounts, analytics, cloud transcription or CDN scripts. Models are not included in the installer.
 
-The desktop shell passes the native Electron user-data folder to the backend. Source runs default to `~/Library/Application Support/Steno` on Mac and `%LOCALAPPDATA%/Steno` on Windows. `STENO_DATA_DIR` overrides the location for development and testing. Use Settings diagnostics to identify the active path. Sessions live in `sessions/steno.sqlite3`, alongside `audio/` and `images/`; models live in `models/`. Close Steno before copying the entire data folder for a manual backup.
+The desktop shell passes the native Electron user-data folder to the backend. Source runs default to `~/Library/Application Support/Steno` on Mac and `%LOCALAPPDATA%/Steno` on Windows. `STENO_DATA_DIR` overrides the location for development and testing. Use Settings diagnostics to identify the active path, open the logs folder, or export a support ZIP. The support ZIP contains bounded recent logs and environment/device/version information; it excludes recordings, notes, transcripts, model files, settings and credentials. Nothing is sent automatically. Portable Windows builds use the adjacent `Steno Data` folder instead. Sessions live in `sessions/steno.sqlite3`, alongside `audio/` and `images/`; models live in `models/`. Close Steno before copying the entire data folder for a manual backup.
 
 The importer also reads earlier `~/Documents/Steno/sessions` installations and source checkout sessions. It never rewrites or deletes those originals. Deleting an imported session removes Steno's managed copies and prevents the original from being imported again. Reinstalling or uninstalling the app preserves user data by default.
 

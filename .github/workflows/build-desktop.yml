@@ -60,6 +60,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.exe
+            release/*-portable.zip
             release/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

@@ -33,6 +33,8 @@ This branch incorporates the desktop changes from PR #22, then replaces the unsa
 | Locked Markdown export resurrects a deleted session | Transactional deletion tombstone and retried filesystem cleanup, including Windows-style sharing failures. |
 | Warm-up failure changes the active model prematurely | Warm a candidate, then atomically persist/swap selection; retain the prior active selection on failure. |
 | Public model download inherits an invalid local HF credential | Explicit anonymous public downloads, independent of developer login. Confirmed by actual packaged tiny-model download. |
+| Electron data-path override fails when the directory does not exist | Create the native data folder before overriding Electron user/session paths; regression enforces the actual first-launch precondition. |
+| Windows small-model validation requires a file absent from official repositories | Treat preprocessor configuration as optional and validate the model/tokenizer/vocabulary files actually published by Systran. |
 | Fixed-port cleanup can terminate an unrelated process | Bind an available loopback socket; terminate only the shell's child process. Test dynamic binding and owned shutdown. |
 | Dynamic port changes browser storage origin | Atomic application storage survives port changes and preserves per-input drafts. The close acknowledgment protocol waits for saved notes; failed saves cancel exit. Node regressions cover both paths. |
 
@@ -40,10 +42,11 @@ This branch incorporates the desktop changes from PR #22, then replaces the unsa
 
 Environment: Apple Silicon M4 Pro, macOS 27.0.1, Python 3.12. Tests use isolated temporary data and do not inspect or modify personal recordings.
 
-- Complete Python suite: 182 tests passed after the final runtime changes; final CI links are reported in the pull request.
-- JavaScript tests cover Electron process ownership and frontend session/note/job behavior.
+- Complete Python suite: 195 tests passed after the final runtime changes; final CI links are reported in the pull request.
+- Complete JavaScript suite: 38 tests passed, covering Electron process ownership and frontend session/note/job behavior. Actual source Electron relaunched on a different negotiated port, restored Spanish/last session/notes, and persisted a note when closed immediately after typing. The corrected packaged app also reached setup from a previously nonexistent data directory. A subsequent GUI check was interrupted by the Mac locking.
 - Real Chrome checks exercised setup, English/Spanish UI, saved history, note editing, session isolation, audio controls and failed-job actions using an explicit fixture. The fixture bypassed model setup only; it is not a microphone or GPU test.
 - A native PyInstaller backend downloaded `tiny`, warmed MLX/Metal, transcribed synthetic spoken audio, reported `validated=true`, rejected an incorrect auth token and shut down when its parent's pipe closed.
+- The same frozen backend then restarted with a new token and port, using the same isolated data directory with `HF_HUB_OFFLINE=1`. Saved notes/transcript/source audio survived and actual Metal retranscription passed again. This guards Hugging Face network access; it does not simulate a physically disconnected network.
 - The Mac DMG was built locally and the complete `.app` passed `codesign --verify --deep --strict`. This does not prove Gatekeeper acceptance of an internet-downloaded DMG on a clean machine.
 
 ## Required acceptance matrix
@@ -57,12 +60,13 @@ Record installer filename/SHA-256, commit, OS build, CPU/GPU/RAM, driver version
 | Install without Python, uv, Node or build tools | **Pending clean machine** | **Pending** | **Pending** |
 | Launch internet-downloaded unsigned installer using documented system prompts | **Pending** | **Pending** | **Pending** |
 | First model download, cancel, retry, repair incomplete files | Unit + local happy path; interruption manual pending | **Pending** | **Pending** |
-| Restart and infer with network disconnected | **Pending actual packaged run** | **Pending** | **Pending** |
+| Restart and infer with network disconnected | Packaged HF-offline restart passes; physical disconnect pending | **Pending** | **Pending** |
 | Short capture, stop/drain, resume without overwriting, disconnect mic | Automated regressions; real microphone pending | **Pending** | **Pending** |
 | Two-hour capture while inference is slower than real time | **Pending** | **Pending** | **Pending** |
 | Close during processing; reopen and resume without duplicate text | Automated regressions; packaged manual pending | **Pending** | **Pending** |
-| Notes/images/transcripts survive save, reopen, edit and portable export | Automated + browser checks; installed relaunch pending | **Pending** | **Pending** |
+| Notes/images/transcripts survive save, reopen, edit and portable export | Automated + browser checks; packaged backend relaunch passes, installed GUI lifecycle pending | **Pending** | **Pending** |
 | Occupied port, double launch, manual upgrade and uninstall preserve data | Automated lifecycle checks; installed manual pending | **Pending** | **Pending** |
+| Portable ZIP starts from a writable folder, keeps data beside Steno.exe and exports support logs | Not applicable | **Pending** | **Pending** |
 | Missing/incompatible driver and mid-job GPU failure preserve source / CPU retry | Not applicable | **Pending real hardware** | CPU path required |
 
 ## Reproducible commands
@@ -85,9 +89,13 @@ On Windows, replace the expected device with `cpu` or `cuda`. CUDA acceptance **
 
 Cancellation is cooperative between native inference calls and download progress callbacks. Closing the shell may interrupt an expensive in-flight call after its shutdown grace period; audio, committed segments and durable jobs must recover on the next launch.
 
+## Windows tester handoff
+
+Provide the portable ZIP only after the native Windows build and packaged CPU smoke pass. The recipient extracts the entire folder and opens `Steno.exe`; no developer tools are required. `Steno Data/logs` is created beside it. Include [the Spanish test guide](PRUEBA-WINDOWS.md). The Settings support ZIP contains bounded logs and runtime/hardware metadata without including session content. Request the failure time and expected/actual behavior with that ZIP. Real CUDA acceptance remains pending until the tester runs on the NVIDIA computer.
+
 ## Publication order
 
-1. Build and review `1.0.0-beta.1`. Attach native DMG/NSIS files, checksums, requirements, unsigned-install instructions, tested hardware and explicit remaining limitations. Do not publish a source-only release as an installer release.
+1. Build and review `1.0.0-beta.1`. Attach native DMG/NSIS files and the Windows portable ZIP, checksums, requirements, unsigned-install instructions, tested hardware and explicit remaining limitations. Do not publish a source-only release as an installer release.
 2. Complete all applicable acceptance rows above and run a release candidate with the same frozen dependencies and packaging scripts. Repeat failed cases after repairs.
 3. Publish `1.0.0` only when data preservation and clean installation are demonstrated for Mac, Windows CUDA and Windows CPU. Close the matching desktop blockers with evidence. Server and deferred features remain separate.
 

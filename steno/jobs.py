@@ -96,6 +96,7 @@ class JobManager:
         if self._uploads and self._uploads.get(upload_token) != session_id:
             raise BusyError("Wait for the audio upload to finish")
         job = Store().create_job(session_id, kind, payload)
+        logger.info("event=job_queued job_id=%s kind=%s", job["id"], kind)
         self.kick()
         return job
 
@@ -119,16 +120,17 @@ class JobManager:
                 job = Store().create_job(session.session_id, "recording", payload)
                 self.recording = {"session_id": session.session_id, "owner": owner,
                                   "job_id": job["id"], "take_id": take["id"], "writer": writer}
+                logger.info("event=recording_started job_id=%s mode=%s", job["id"], mode)
             except Exception:
                 try:
                     await asyncio.to_thread(self.capture.stop)
-                except Exception:
-                    logger.exception("Failed to stop capture after microphone startup failure")
+                except Exception as exc:
+                    logger.error("event=capture_start_cleanup_failed error_type=%s", type(exc).__name__)
                 if writer is not None:
                     try:
                         await asyncio.to_thread(writer.close)
-                    except Exception:
-                        logger.exception("Failed to close archive after microphone startup failure")
+                    except Exception as exc:
+                        logger.error("event=archive_start_cleanup_failed error_type=%s", type(exc).__name__)
                 if take is not None:
                     session.finish_take(take["id"], status="failed")
                 raise
@@ -156,6 +158,8 @@ class JobManager:
             if self.capture.error:
                 Store().update_job(record["job_id"], error=self.capture.error)
             self.recording = None
+            logger.info("event=recording_stopped job_id=%s frames=%d capture_error=%s",
+                        record["job_id"], frames, bool(self.capture.error))
             await self.emit(record["session_id"], self.status(record["session_id"]))
 
     async def cancel(self, job_id):
@@ -164,6 +168,7 @@ class JobManager:
             raise FileNotFoundError(job_id)
         if job["status"] in TERMINAL:
             return job
+        logger.info("event=job_cancel_requested job_id=%s previous_status=%s", job_id, job["status"])
         recording = bool(self.recording and self.recording["job_id"] == job_id)
         # Reserve cancellation before stop yields to the worker. Otherwise a
         # completed job can be changed back to "cancelling" by this request.
@@ -187,6 +192,7 @@ class JobManager:
         if device:
             payload["device"] = device
         result = Store().update_job(job_id, status="queued", error=None, payload=payload, result=None)
+        logger.info("event=job_retry job_id=%s device=%s", job_id, payload.get("device", "auto"))
         self.kick()
         return result
 
@@ -202,6 +208,8 @@ class JobManager:
             job = pending[0]
             self._active_job_id = job["id"]
             Store().update_job(job["id"], status="running")
+            logger.info("event=job_started job_id=%s kind=%s device=%s", job["id"], job["kind"],
+                        job["payload"].get("device", "auto"))
             await self.emit(job["session_id"], self.status(job["session_id"]))
             transcriber = None
             try:
@@ -218,9 +226,15 @@ class JobManager:
                 result["capabilities"] = transcriber.get_capabilities()
                 cancelled = self._cancelled(job["id"])
                 error = Store().get_job(job["id"]).get("error")
-                Store().update_job(job["id"], status="cancelled" if cancelled else ("failed" if error else "completed"), result=result)
+                status = "cancelled" if cancelled else ("failed" if error else "completed")
+                Store().update_job(job["id"], status=status, result=result)
+                logger.info("event=job_finished job_id=%s status=%s segments=%d device=%s",
+                            job["id"], status, result.get("count", 0), result["capabilities"].get("device"))
             except Exception as exc:
-                logger.exception("Job %s failed", job["id"])
+                # Native errors may embed paths or recognized words. Persist the
+                # user-visible error in the job, but log only diagnostic metadata.
+                logger.error("event=job_failed job_id=%s error_type=%s retry_cpu=%s",
+                             job["id"], type(exc).__name__, bool(getattr(exc, "retry_cpu", False)))
                 if self.recording and self.recording["job_id"] == job["id"]:
                     await self.stop_recording()
                 cancelled = self._cancelled(job["id"])
@@ -236,8 +250,8 @@ class JobManager:
                     if unload:
                         try:
                             await asyncio.to_thread(unload)
-                        except Exception:
-                            logger.exception("Native model cleanup failed for job %s", job["id"])
+                        except Exception as exc:
+                            logger.error("event=model_cleanup_failed job_id=%s error_type=%s", job["id"], type(exc).__name__)
                 self._active_job_id = None
                 await self.emit(job["session_id"], self.status(job["session_id"]))
 
@@ -291,6 +305,9 @@ class JobManager:
                     break
             cursor = end
             Store().update_take(take_id, processed_frames=cursor)
+            if cursor // (30 * sample_rate) != start // (30 * sample_rate) or not active:
+                logger.info("event=recording_checkpoint job_id=%s processed_seconds=%.3f segments=%d",
+                            job["id"], cursor / sample_rate, count)
         if not self._closing:
             if self._cancelled(job["id"]) and self.recording and self.recording["job_id"] == job["id"]:
                 await self.stop_recording()
@@ -314,6 +331,7 @@ class JobManager:
             path = session.audio_path(take_id)
             checkpoint = store.file_checkpoint(job["id"], take_id)
             if checkpoint["completed"]:
+                logger.info("event=take_already_completed job_id=%s take_id=%s", job["id"], take_id)
                 count += checkpoint["segment_count"]
                 completed_takes.append(take_id)
                 continue
@@ -328,6 +346,8 @@ class JobManager:
                         duration, batch_segments = batch
                         store.save_file_batch(job["id"], take_id,
                                               round(duration * Config.SAMPLE_RATE), batch_segments)
+                        logger.info("event=file_checkpoint job_id=%s take_id=%s processed_seconds=%.3f segments=%d",
+                                    job["id"], take_id, duration, len(batch_segments))
                         await self.emit(session.session_id, {"type": "job_progress", "job_id": job["id"],
                                                              "take_id": take_id, "processed_seconds": duration})
                 finally:

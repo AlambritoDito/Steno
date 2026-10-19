@@ -635,6 +635,7 @@ function applySessionI18n() {
     const labels = { "job-cancel": ["cancel", "Cancel"], "job-retry": ["setup_retry", "Retry"], "job-cpu": ["retry_cpu", "Retry on CPU"], "upload-label-text": ["upload_audio", "Upload audio file to transcribe"] };
     Object.entries(labels).forEach(([id, values]) => { uiElement(id).textContent = uiText(...values); });
     if (currentJob) renderJob(currentJob);
+    uiElement("open-logs-btn").hidden = typeof window.electronAPI?.openLogs !== "function";
     renderCapabilities();
 }
 
@@ -712,6 +713,9 @@ async function refreshDebugInfo() {
     const content = uiElement("debug-info-content");
     try {
         const info = await (await apiRequest("/api/diagnostics")).json();
+        uiElement("support-data-path").textContent = info.logs_path
+            ? `${uiText("diagnostics_logs", "Logs folder")}: ${info.logs_path}`
+            : info.data_dir ? `${uiText("diagnostics_data", "Data folder")}: ${info.data_dir}` : "";
         const engine = info.transcriber || {};
         const rows = [
             [uiText("diagnostics_version", "Version"), info.app_version],
@@ -738,6 +742,41 @@ async function refreshDebugInfo() {
             content.appendChild(row);
         });
     } catch (error) { content.textContent = error.message; showError(error); }
+}
+
+function showSupportError(error) {
+    const message = uiElement("support-message");
+    message.textContent = error.message || String(error);
+    message.hidden = false;
+    showError(error);
+}
+
+async function openLogsFolder() {
+    if (typeof window.electronAPI?.openLogs !== "function") return;
+    const button = uiElement("open-logs-btn");
+    button.disabled = true;
+    uiElement("support-message").hidden = true;
+    try {
+        const result = await window.electronAPI.openLogs();
+        if (!result?.ok) throw new Error(result?.error || uiText("open_logs_failed", "Could not open the logs folder."));
+    } catch (error) { showSupportError(error); }
+    finally { button.disabled = false; }
+}
+
+async function exportDiagnostics() {
+    const button = uiElement("export-diagnostics-btn");
+    button.disabled = true;
+    uiElement("support-message").hidden = true;
+    try {
+        const response = await apiRequest("/api/diagnostics/export");
+        const url = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "steno-diagnostics.zip";
+        anchor.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) { showSupportError(error); }
+    finally { button.disabled = false; }
 }
 
 function stopBeforeClose() {

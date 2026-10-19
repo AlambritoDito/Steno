@@ -473,3 +473,41 @@ async def test_microphone_test_reserves_runtime_against_recording_and_upload(cli
         release.set()
     assert (await testing).status_code == 200
     assert not app.state.model_busy
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_export_is_authenticated_and_contains_no_session_data(client, monkeypatch):
+    import io
+    import json
+    import zipfile
+    from steno.session import Session
+    monkeypatch.setenv("STENO_AUTH_TOKEN", "launch-diagnostic-secret")
+    session = Session("private-session-title")
+    session.add_note("private-note-body")
+    assert (await client.get("/api/diagnostics/export")).status_code == 401
+    response = await client.get("/api/diagnostics/export", headers={"Authorization": "Bearer launch-diagnostic-secret"})
+    assert response.status_code == 200
+    assert "application/zip" in response.headers["content-type"]
+    assert "attachment" in response.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["diagnostic.json"]
+        report = json.loads(archive.read("diagnostic.json"))
+        assert report["schema_version"] == 1 and report["logs_path"]
+        assert "private-session-title" not in str(report)
+        assert "private-note-body" not in str(report)
+        assert "launch-diagnostic-secret" not in str(report)
+
+
+@pytest.mark.asyncio
+async def test_api_action_logs_only_route_template_and_status(client, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="steno")
+    created = await client.post("/api/sessions/new?token=private-query", json={"name": "private-title"})
+    session_id = created.json()["session_id"]
+    await client.put(f"/api/sessions/{session_id}/note", json={"markdown": "private-note"})
+    records = "\n".join(record.getMessage() for record in caplog.records if record.name == "steno")
+    assert "event=request method=POST route=/api/sessions/new status=201" in records
+    assert "route=/api/sessions/{session_id}/note" in records
+    assert session_id not in records
+    for private in ("private-query", "private-title", "private-note"):
+        assert private not in records

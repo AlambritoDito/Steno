@@ -40,7 +40,16 @@ def validate_model_files(path: Path, backend: str) -> None:
             raise ValueError("MLX model weights are missing")
         required.append(weights)
     elif backend == "faster-whisper":
-        required.extend(["model.bin", "tokenizer.json", "preprocessor_config.json"])
+        required.extend(["model.bin", "tokenizer.json"])
+        vocabulary = next((name for name in ("vocabulary.json", "vocabulary.txt")
+                           if (path / name).is_file()), None)
+        if vocabulary is None:
+            raise ValueError("CTranslate2 model vocabulary is missing")
+        required.append(vocabulary)
+        # Tiny/base/small use faster-whisper's default 80-bin extractor and do
+        # not publish this file. Large-v3 models publish the 128-bin settings.
+        if (path / "preprocessor_config.json").exists():
+            required.append("preprocessor_config.json")
     else:
         raise ValueError("Unsupported model format")
     for name in required:
@@ -52,7 +61,9 @@ def validate_model_files(path: Path, backend: str) -> None:
                 raise ValueError(f"Unresolved model download: {name}")
         if name.endswith(".json"):
             value = json.loads(file.read_text(encoding="utf-8"))
-            if not isinstance(value, dict):
+            valid = (isinstance(value, list) and bool(value) and all(isinstance(token, str) for token in value)
+                     if name == "vocabulary.json" else isinstance(value, dict))
+            if not valid:
                 raise ValueError(f"Invalid model configuration: {name}")
 
 

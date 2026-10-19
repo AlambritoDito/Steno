@@ -6,13 +6,22 @@ const os = require("node:os");
 const fs = require("node:fs");
 const { Backend, backendCommand } = require("./backend");
 const { UiStorage } = require("./ui-storage");
+const { resolveDataDirectory, prepareDataDirectory } = require("./data-directory");
 
-// Match Config.data_dir on both supported platforms. User data is outside installs.
-const nativeDataDir = process.platform === "win32"
-  ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Steno")
-  : path.join(os.homedir(), "Library", "Application Support", "Steno");
-const dataDir = process.env.STENO_DATA_DIR || nativeDataDir;
-app.setPath("userData", dataDir);
+// The portable ZIP carries a marker beside its executable; installers never do.
+let dataDir;
+let startupError;
+try {
+  dataDir = resolveDataDirectory({
+    platform: process.platform, packaged: app.isPackaged,
+    executable: process.platform === "win32" && app.isPackaged ? app.getPath("exe") : null,
+    override: process.env.STENO_DATA_DIR, localAppData: process.env.LOCALAPPDATA, home: os.homedir(),
+  });
+  prepareDataDirectory(dataDir);
+  // Electron requires overridden paths to exist, including on a clean install.
+  app.setPath("userData", dataDir);
+  app.setPath("sessionData", dataDir);
+} catch (error) { startupError = error; }
 let mainWindow;
 let backend;
 let quitting = false;
@@ -21,7 +30,10 @@ let uiStorage;
 let rendererReady = false;
 let closePending = false;
 let closeTimer;
-const spanish = () => app.getLocale().startsWith("es");
+const spanish = () => {
+  try { return (app.getLocale() || Intl.DateTimeFormat().resolvedOptions().locale).startsWith("es"); }
+  catch (_) { return Intl.DateTimeFormat().resolvedOptions().locale.startsWith("es"); }
+};
 const text = (en, es) => spanish() ? es : en;
 
 function writeLog(message) {
@@ -49,6 +61,17 @@ ipcMain.on("ui-storage", (event, operation, key, value) => {
   if (!trustedSender(event)) { event.returnValue = { error: "Untrusted application frame" }; return; }
   try { event.returnValue = { value: uiStorage.invoke(operation, key, value) }; }
   catch (error) { event.returnValue = { error: error.message }; }
+});
+
+ipcMain.handle("open-logs", async (event) => {
+  if (!trustedSender(event)) return { ok: false, error: "Untrusted application frame" };
+  try {
+    const directory = path.join(dataDir, "logs");
+    fs.mkdirSync(directory, { recursive: true });
+    const error = await shell.openPath(directory);
+    if (error) throw new Error(error);
+    return { ok: true };
+  } catch (error) { return { ok: false, error: error.message }; }
 });
 
 function finishQuit() {
@@ -140,7 +163,13 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menus));
 }
 
-if (!app.requestSingleInstanceLock()) {
+if (startupError) {
+  dialog.showErrorBox("Steno", text(
+    "Steno cannot write to its data folder. For the portable edition, extract the entire ZIP into a writable folder such as Documents, then open Steno.exe again. For an installed copy, check that your application data folder is writable.",
+    "Steno no puede escribir en su carpeta de datos. Para la edición portátil, extrae todo el ZIP en una carpeta donde puedas guardar archivos, como Documentos, y abre Steno.exe de nuevo. Si lo instalaste, comprueba que puedes escribir en la carpeta de datos de la aplicación.",
+  ));
+  app.exit(1);
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {

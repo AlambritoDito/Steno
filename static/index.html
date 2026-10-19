@@ -2099,6 +2099,17 @@ body.electron .header-left {
         </div>
         <p class="tagline" id="settings-tagline">Application preferences and debug tools</p>
 
+        <section style="margin-top:24px" aria-labelledby="settings-support-title">
+            <h3 id="settings-support-title" data-i18n="settings_support" style="font-size:14px;margin-bottom:8px">Help and diagnostics</h3>
+            <p data-i18n="settings_support_description" style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">If Steno fails, export a ZIP with technical information and recent logs to share with support. Your recordings and notes are not included.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-ghost" id="open-logs-btn" onclick="openLogsFolder()" data-i18n="open_logs_folder" hidden>Open logs folder</button>
+                <button class="btn btn-ghost" id="export-diagnostics-btn" onclick="exportDiagnostics()" data-i18n="export_diagnostics">Export diagnostics</button>
+            </div>
+            <p id="support-data-path" style="margin-top:10px;font-size:11px;color:var(--text-muted);overflow-wrap:anywhere"></p>
+            <p id="support-message" role="alert" style="margin-top:8px;font-size:13px;color:var(--red)" hidden></p>
+        </section>
+
         <!-- Debug Section (hidden by default, toggle with Cmd+Shift+D) -->
         <div style="margin-top:24px" id="debug-section" class="hidden">
             <h3 style="font-size:13px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:12px" id="settings-debug-title">Debug</h3>
