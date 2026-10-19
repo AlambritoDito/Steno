@@ -6,6 +6,67 @@ Versioning follows [Semantic Versioning](https://semver.org/) with pre-release l
 
 ---
 
+## [1.0.0-beta.1] — Unreleased
+
+Desktop beta foundation; stable release gates remain open.
+
+### Added
+- Windows x64 CTranslate2 backend with NVIDIA CUDA probing, CPU fallback and runtime libraries packaged by verified manifests.
+- SQLite sessions, editable notes, durable jobs, per-take audio and crash recovery; original legacy Markdown documents remain untouched.
+- Portable Markdown and ZIP exports with images/audio, visible job status, cancellation and retry.
+- Native Mac/Windows build workflows, authenticated desktop handshake, single-instance launch and packaged smoke checks.
+- Portable Windows ZIP with adjacent `Steno Data/logs`, an EN/ES support interface and a Spanish guide for nontechnical testers.
+- Bounded diagnostics ZIP with runtime versions, hardware and redacted logs; no automatic upload or session contents.
+
+### Fixed
+- History/notes loss after restart, duplicated editor saves and unflushed export drafts.
+- Recording tail loss, double audio overlap, overwritten WAVs on resume and cross-client recording ownership.
+- Model-download progress protocol, local snapshot validation and offline decoding with bundled PyAV.
+- Unsafe process termination by port, raw Markdown rendering and unchecked local asset paths.
+- Fresh-directory desktop startup and validation of the files actually published in Windows model repositories.
+
+### Changed
+- Python 3.12 runtime; platform-specific pinned ML dependencies and updated Electron.
+- Initial desktop support target: macOS 27 Apple Silicon and Windows 11 x64. Installers have no public signing/notarization.
+- Long transcription endpoints return HTTP 202 job IDs. Source uploads stay in app storage for retry.
+
+---
+
+## [0.2.0] — Proposed in PR #22, not published
+
+Mac changes prepared on 2026-03-09. These changes are incorporated into the desktop 1.0 beta; the stable-release checks were not completed for 0.2.0.
+
+### Added
+- **Auto-update notifications** — checks GitHub Releases on startup and every 4 hours, shows a dismissable banner when a new version is available (#new)
+- **Real download progress** — model downloads show actual MB downloaded/total with polling instead of fake progress bar (#13)
+- **Download progress API** — new `GET /api/download-progress` endpoint for real-time download tracking
+- **Update check API** — new `GET /api/update-check` endpoint using GitHub Releases API
+- **Styled confirmation dialogs** — all native `alert()`/`confirm()` calls replaced with app-styled modals
+- **ARIA accessibility** — added `role`, `aria-label`, `aria-live`, and `aria-modal` attributes to key interactive elements and modals
+- New locale keys for update notifications, PortAudio errors, and debug hints (EN + ES)
+
+### Fixed
+- **[Critical]** marked.js loaded from CDN broke offline usage — now vendored locally in `static/vendor/` (#4)
+- **[Critical]** Missing PortAudio caused cryptic crash — now detected gracefully with user-friendly banner and disabled recording (#5)
+- **[Critical]** Memory leak in long recording sessions — append-only file save during recording, proper async task lifecycle management, session eviction on disconnect, and audio buffer cleanup (#6, #14)
+- **[Critical]** Model not unloaded from RAM when switching — explicit `unload_model()` with `gc.collect()` and `mlx.core.metal.clear_cache()` (#7)
+- Raw JavaScript error messages no longer exposed to users in download failures
+- Generic "Error loading models" replaced with actionable user-friendly message
+
+### Changed
+- Debug panel hidden behind Cmd+Shift+D keyboard shortcut (was visible by default in Settings)
+- DevTools removed from View menu in production builds
+- Debug API endpoint `/api/debug/info` guarded in production (returns 403 unless `STENO_DEBUG` env is set)
+- App reset accessible via `/api/reset` (in addition to `/api/debug/reset`)
+- Bundle size reduced via PyInstaller `--strip` flag and `--exclude-module` for unused packages (tkinter, matplotlib, scipy, etc.) (#12)
+- Build script includes post-build cleanup of `__pycache__` and test directories
+
+### Removed
+- CDN dependency on marked.js (replaced with vendored copy)
+- Native browser `alert()`/`confirm()` dialogs (replaced with styled modals)
+
+---
+
 ## [0.1.0-alpha.1] — 2026-03-06
 
 First tagged release. The app is functional as a proof of concept but is still rough around the edges — expect breaking changes between alpha builds.

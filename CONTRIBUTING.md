@@ -12,12 +12,14 @@ Thanks for your interest in contributing to Steno! This document provides guidel
    ```
 3. Install dependencies:
    ```bash
-   uv sync --extra dev
+   uv sync --frozen --extra dev
    ```
 4. Create a branch for your changes:
    ```bash
    git checkout -b feature/your-feature-name
    ```
+
+Use Python 3.12. See [architecture](docs/ARCHITECTURE.md) for module contracts and [release gates](docs/RELEASE.md) for platform validation.
 
 ## Development Workflow
 
@@ -30,7 +32,7 @@ uv run main.py
 ### Running tests
 
 ```bash
-uv run pytest tests/ -v
+uv run --no-sync pytest tests/ -v
 ```
 
 All tests must pass before submitting a pull request.
@@ -38,13 +40,13 @@ All tests must pass before submitting a pull request.
 ### Project Conventions
 
 - **Python**: Follow PEP 8. Use type hints where practical.
-- **Frontend**: All UI code lives in `static/index.html` as a single file with inline CSS and JS. No build tools, no npm.
+- **Frontend**: UI lives in `static/index.html` and `static/session-ui.js`. There is no frontend compilation step. Run JavaScript regression tests with `node --test electron/*.test.js tests/*.test.cjs`.
 - **i18n**: Every user-facing string must go through the i18n system. Add keys to both `locales/en.json` and `locales/es.json`.
 - **Tests**: Add tests for new functionality. Test files live in `tests/` and follow the `test_<module>.py` convention.
 
 ## Pull Request Process
 
-1. Ensure all tests pass (`uv run pytest tests/ -v`)
+1. Ensure all tests pass (`uv run --no-sync pytest tests/ -v`)
 2. Update documentation if your change affects usage or configuration
 3. Add both English and Spanish translations for any new UI strings
 4. Keep pull requests focused — one feature or fix per PR
@@ -57,7 +59,7 @@ Open an issue with:
 - A clear title and description
 - Steps to reproduce the problem
 - Expected vs actual behavior
-- Your macOS version and Apple Silicon chip (M1/M2/M3/M4)
+- Your OS version, chip/GPU, selected backend/device and Steno version
 - Python version (`python --version`)
 
 ## Feature Requests

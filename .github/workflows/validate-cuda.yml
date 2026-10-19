@@ -1,0 +1,30 @@
+name: Validate installed CUDA inference
+on:
+  workflow_dispatch:
+    inputs:
+      binary:
+        description: 'Absolute path to the installed steno-server.exe on the dedicated Windows 11 runner'
+        type: string
+        required: true
+      speech_fixture:
+        description: 'Absolute path to a local consented speech fixture (never uploaded)'
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  cuda-inference:
+    runs-on: [self-hosted, Windows, X64, steno-cuda]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: '3.12'
+      - name: Real packaged GPU inference, no fallback accepted
+        shell: pwsh
+        env:
+          STENO_TEST_BINARY: ${{ inputs.binary }}
+          STENO_TEST_AUDIO: ${{ inputs.speech_fixture }}
+        run: uv run --no-project python scripts/smoke_backend.py --binary "$env:STENO_TEST_BINARY" --audio "$env:STENO_TEST_AUDIO" --expect-device cuda

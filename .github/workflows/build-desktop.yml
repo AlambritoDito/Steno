@@ -1,0 +1,85 @@
+name: Build beta installers
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/**']
+    tags: ['v*-beta.*', 'v*-rc.*']
+permissions:
+  contents: read
+jobs:
+  native-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            platform: macos-arm64
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      STENO_SMOKE_DIAGNOSTICS_DIR: ${{ github.workspace }}/build/smoke-diagnostics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: uv sync --frozen --extra dev --extra build
+      - run: npm ci
+      - run: uv run --frozen --extra dev --extra build pytest tests/ -v
+      - run: npm run test:electron
+      - run: npm run test:ui
+      - run: npm run build:assets
+      - run: npm run build:python
+      - run: npm run smoke:backend
+      - name: Verify frozen Windows CPU speech inference before packaging
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Speech
+          $speech = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          $fixture = Join-Path $env:RUNNER_TEMP 'steno-ci-speech.wav'
+          try {
+            $speech.SetOutputToWaveFile($fixture)
+            $speech.Speak('This is a local transcription test. The quick brown fox jumps over the lazy dog.')
+          } finally {
+            $speech.Dispose()
+          }
+          uv run --frozen --extra dev --extra build python scripts/smoke_backend.py --audio "$fixture" --expect-device cpu
+      - run: npm run build:electron
+      - name: Verify NSIS install, installed CPU inference and data-preserving uninstall
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $fixture = Join-Path $env:RUNNER_TEMP 'steno-ci-speech.wav'
+          uv run --frozen --extra dev --extra build python scripts/smoke_windows_installer.py --audio "$fixture"
+      - name: Verify macOS ad hoc bundle signature
+        if: runner.os == 'macOS'
+        run: codesign --verify --deep --strict release/mac-arm64/Steno.app
+      - name: Create installer checksums
+        run: uv run --frozen python scripts/checksums.py
+      - name: Retain redacted native smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Steno-${{ matrix.platform }}-smoke-failure
+          path: build/smoke-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Steno-${{ matrix.platform }}-beta
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*-portable.zip
+            release/SHA256SUMS.txt
+            release/installer-smoke.json
+          if-no-files-found: error
+          retention-days: 14

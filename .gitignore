@@ -34,8 +34,10 @@ htmlcov/
 ._*
 
 # Steno
-sessions/*.md
+sessions/**
 !sessions/.gitkeep
+models/
+logs/
 *.wav
 *.mp3
 *.ogg
@@ -47,8 +49,17 @@ sessions/*.md
 
 # Node / Electron
 node_modules/
-package-lock.json
 *.dmg
 
 # PyInstaller
 *.spec
+
+# Claude Code
+.claude/
+
+# Build artifacts
+build/
+
+# Desktop release output and reproducible download cache
+release/
+.cache/
