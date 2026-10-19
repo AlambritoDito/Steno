@@ -5,7 +5,7 @@ Default: startup, origin/token protection, static UI and shutdown. Pass --audio 
 persisted data and cached inference after restart with HF_HUB_OFFLINE=1.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import io
 import json
 import os
@@ -140,11 +140,12 @@ def wait_inference(url, token, job, session_id, expected_device):
     raise RuntimeError("Inference timed out")
 
 
-def run(binary, audio=None, expected_device=None):
+def run(binary, audio=None, expected_device=None, *, data_directory=None):
     if not binary.is_file():
         raise RuntimeError(f"Build the native backend first: {binary}")
     device = expected_device if expected_device in {"cuda", "cpu"} else "auto"
-    with tempfile.TemporaryDirectory(prefix="steno-smoke-") as temporary:
+    directory = tempfile.TemporaryDirectory(prefix="steno-smoke-") if data_directory is None else nullcontext(str(data_directory))
+    with directory as temporary:
         with launch(binary, temporary) as (url, token):
             if not audio:
                 return

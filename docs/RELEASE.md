@@ -42,7 +42,7 @@ This branch incorporates the desktop changes from PR #22, then replaces the unsa
 
 Environment: Apple Silicon M4 Pro, macOS 27.0.1, Python 3.12. Tests use isolated temporary data and do not inspect or modify personal recordings.
 
-- Complete Python suite: 195 tests passed after the final runtime changes; final CI links are reported in the pull request.
+- Complete Python suite: 201 tests passed after the final runtime changes; final CI links are reported in the pull request.
 - Complete JavaScript suite: 38 tests passed, covering Electron process ownership and frontend session/note/job behavior. Actual source Electron relaunched on a different negotiated port, restored Spanish/last session/notes, and persisted a note when closed immediately after typing. The corrected packaged app also reached setup from a previously nonexistent data directory. A subsequent GUI check was interrupted by the Mac locking.
 - Real Chrome checks exercised setup, English/Spanish UI, saved history, note editing, session isolation, audio controls and failed-job actions using an explicit fixture. The fixture bypassed model setup only; it is not a microphone or GPU test.
 - A native PyInstaller backend downloaded `tiny`, warmed MLX/Metal, transcribed synthetic spoken audio, reported `validated=true`, rejected an incorrect auth token and shut down when its parent's pipe closed.
@@ -83,7 +83,7 @@ uv run --no-sync python scripts/smoke_backend.py --audio /path/to/spoken-fixture
 uv run --no-sync python scripts/checksums.py
 ```
 
-On Windows, replace the expected device with `cpu` or `cuda`. CUDA acceptance **must** assert `device=cuda` and `validated=true`; a silent CPU fallback cannot satisfy it. The GPU workflow requires an explicitly configured Windows NVIDIA runner and a local, non-private speech fixture. A hosted Windows runner can prove CPU operation, not NVIDIA operation.
+On Windows, replace the expected device with `cpu` or `cuda`. CUDA acceptance **must** assert `device=cuda` and `validated=true`; a silent CPU fallback cannot satisfy it. The GPU workflow requires an explicitly configured Windows NVIDIA runner and a local, non-private speech fixture. A hosted Windows runner can prove CPU operation, not NVIDIA operation. The Windows build also silently installs NSIS for the fresh CI user, verifies per-user registration, runs the speech/offline/support checks from the installed backend, uninstalls, and checks that the real session database, source audio and data-folder sentinels survive. Its `installer-smoke.json` report explicitly excludes interactive installer and NVIDIA validation; a hosted Windows Server runner does not replace the Windows 11 clean-machine check.
 
 `packaging/cuda-runtime.json` pins NVIDIA downloads and their SHA-256 hashes. The installer bundles CUDA 12.4.1, cuBLAS, cuDNN 9.1.1.17 and redistribution notices. It neither installs drivers nor modifies global PATH. Model weights remain separate downloads. The recommended Windows NVIDIA driver baseline (551.78+) is provisional until exercised by the CUDA gate.
 

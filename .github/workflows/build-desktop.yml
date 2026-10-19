@@ -35,7 +35,7 @@ jobs:
       - run: npm run test:ui
       - run: npm run build
       - run: npm run smoke:backend
-      - name: Verify packaged CPU speech inference on Windows
+      - name: Verify NSIS install, installed CPU inference and data-preserving uninstall
         if: runner.os == 'Windows'
         shell: powershell
         run: |
@@ -48,7 +48,7 @@ jobs:
           } finally {
             $speech.Dispose()
           }
-          uv run --frozen --extra dev python scripts/smoke_backend.py --binary release/win-unpacked/resources/steno-server/steno-server.exe --audio "$fixture" --expect-device cpu
+          uv run --frozen --extra dev python scripts/smoke_windows_installer.py --audio "$fixture"
       - name: Verify macOS ad hoc bundle signature
         if: runner.os == 'macOS'
         run: codesign --verify --deep --strict release/mac-arm64/Steno.app
@@ -62,5 +62,6 @@ jobs:
             release/*.exe
             release/*-portable.zip
             release/SHA256SUMS.txt
+            release/installer-smoke.json
           if-no-files-found: error
           retention-days: 14
