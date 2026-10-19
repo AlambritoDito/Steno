@@ -6,6 +6,29 @@ Versioning follows [Semantic Versioning](https://semver.org/) with pre-release l
 
 ---
 
+## [1.0.0-beta.1] — Unreleased
+
+Desktop beta foundation; stable release gates remain open.
+
+### Added
+- Windows x64 CTranslate2 backend with NVIDIA CUDA probing, CPU fallback and runtime libraries packaged by verified manifests.
+- SQLite sessions, editable notes, durable jobs, per-take audio and crash recovery; original legacy Markdown documents remain untouched.
+- Portable Markdown and ZIP exports with images/audio, visible job status, cancellation and retry.
+- Native Mac/Windows build workflows, authenticated desktop handshake, single-instance launch and packaged smoke checks.
+
+### Fixed
+- History/notes loss after restart, duplicated editor saves and unflushed export drafts.
+- Recording tail loss, double audio overlap, overwritten WAVs on resume and cross-client recording ownership.
+- Model-download progress protocol, local snapshot validation and offline decoding with bundled PyAV.
+- Unsafe process termination by port, raw Markdown rendering and unchecked local asset paths.
+
+### Changed
+- Python 3.12 runtime; platform-specific pinned ML dependencies and updated Electron.
+- Initial desktop support target: macOS 27 Apple Silicon and Windows 11 x64. Installers have no public signing/notarization.
+- Long transcription endpoints return HTTP 202 job IDs. Source uploads stay in app storage for retry.
+
+---
+
 ## [0.2.0] — 2026-03-09
 
 First stable Mac release targeting non-technical users.

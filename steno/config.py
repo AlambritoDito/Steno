@@ -1,99 +1,104 @@
-"""Global configuration for Steno."""
+"""Platform configuration and durable local settings for Steno."""
 
 import json
+import logging
+import os
+import platform
+import re
 import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
+logger = logging.getLogger("steno.config")
 
-# Available MLX-Whisper models sorted by size/quality
-WHISPER_MODELS = {
-    "tiny": {
-        "repo": "mlx-community/whisper-tiny",
-        "size_mb": 75,
-        "min_ram_gb": 4,
-        "quality": "Basic",
-        "speed": "Fastest",
-    },
-    "base": {
-        "repo": "mlx-community/whisper-base",
-        "size_mb": 145,
-        "min_ram_gb": 4,
-        "quality": "Fair",
-        "speed": "Very fast",
-    },
-    "small": {
-        "repo": "mlx-community/whisper-small",
-        "size_mb": 490,
-        "min_ram_gb": 8,
-        "quality": "Good",
-        "speed": "Fast",
-    },
-    "large-v3-turbo": {
-        "repo": "mlx-community/whisper-large-v3-turbo",
-        "size_mb": 1600,
-        "min_ram_gb": 16,
-        "quality": "Excellent",
-        "speed": "Moderate",
-    },
-    "large-v3": {
-        "repo": "mlx-community/whisper-large-v3",
-        "size_mb": 3100,
-        "min_ram_gb": 32,
-        "quality": "Best",
-        "speed": "Slow",
-    },
+
+def default_backend() -> str:
+    if platform.system() == "Darwin" and platform.machine().lower() in {"arm64", "aarch64"}:
+        return "mlx"
+    if platform.system() == "Windows" and platform.machine().lower() in {"amd64", "x86_64"}:
+        return "faster-whisper"
+    return "unsupported"
+
+
+# Stable product keys; model formats are specific to the inference engine.
+_MODEL_SPECS = {
+    "tiny": (75, 4, "Basic", "Fastest"),
+    "base": (145, 4, "Fair", "Very fast"),
+    "small": (490, 8, "Good", "Fast"),
+    "large-v3-turbo": (1600, 16, "Excellent", "Moderate"),
+    "large-v3": (3100, 32, "Best", "Slow"),
 }
+WHISPER_MODELS = {}
+for _key, (_size, _ram, _quality, _speed) in _MODEL_SPECS.items():
+    _repos = {
+        "mlx": f"mlx-community/whisper-{_key}",
+        "faster-whisper": (
+            "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
+            if _key == "large-v3-turbo" else f"Systran/faster-whisper-{_key}"
+        ),
+    }
+    WHISPER_MODELS[_key] = {
+        "repo": _repos.get(default_backend(), _repos["faster-whisper"]),
+        "repos": _repos, "size_mb": _size, "min_ram_gb": _ram,
+        "quality": _quality, "speed": _speed,
+    }
+
+
+def resolve_model_repo(name: str, backend: str | None = None) -> str:
+    """Translate saved product keys or another platform's repository name."""
+    backend = backend or default_backend()
+    for key, info in WHISPER_MODELS.items():
+        if name == key or name in info["repos"].values():
+            return info["repos"].get(backend, info["repo"])
+    return name
 
 
 def _detect_hardware() -> dict:
-    """Detect Apple Silicon chip and RAM."""
-    import platform
-    import subprocess
-
-    ram_bytes = 0
-    chip = "Unknown"
+    """Report measured RAM; unknown hardware is never represented as guessed RAM."""
+    chip = platform.processor() or platform.machine() or "Unknown"
+    ram_gb = None
     try:
-        result = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"],
-            capture_output=True, text=True, timeout=5,
-        )
-        ram_bytes = int(result.stdout.strip())
-    except Exception:
-        pass
-
-    try:
-        result = subprocess.run(
-            ["sysctl", "-n", "machdep.cpu.brand_string"],
-            capture_output=True, text=True, timeout=5,
-        )
-        chip = result.stdout.strip()
-    except Exception:
-        chip = platform.processor() or "Unknown"
-
-    ram_gb = ram_bytes / (1024 ** 3) if ram_bytes else 8  # default 8 GB
-    return {"chip": chip, "ram_gb": round(ram_gb, 1)}
+        import psutil
+        ram_gb = round(psutil.virtual_memory().total / (1024 ** 3), 1)
+    except (ImportError, OSError, RuntimeError):
+        logger.warning("Could not determine system memory")
+    if platform.system() == "Darwin":
+        try:
+            result = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True, text=True, timeout=5, check=True,
+            )
+            chip = result.stdout.strip() or chip
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return {
+        "chip": chip, "ram_gb": ram_gb, "platform": platform.system(),
+        "architecture": platform.machine(), "backend": default_backend(),
+    }
 
 
-def recommend_model(ram_gb: float) -> str:
-    """Return the best model key for the given RAM."""
+def recommend_model(ram_gb: float | None) -> str:
+    if ram_gb is None:
+        return "base"
     if ram_gb >= 32:
         return "large-v3"
-    elif ram_gb >= 16:
+    if ram_gb >= 16:
         return "large-v3-turbo"
-    elif ram_gb >= 8:
+    if ram_gb >= 8:
         return "small"
-    else:
-        return "base"
+    return "base"
 
 
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".webm", ".mp4"}
 
 
 class Config:
-    MODEL_NAME = "mlx-community/whisper-large-v3-turbo"
-    SAMPLE_RATE = 16000  # Hz required by Whisper
-    CHUNK_DURATION = 5  # seconds per audio chunk
-    OVERLAP_DURATION = 0.5  # overlap between chunks to avoid cutting words
+    MODEL_NAME = WHISPER_MODELS["large-v3-turbo"]["repo"]
+    SAMPLE_RATE = 16000
+    CHUNK_DURATION = 5
+    OVERLAP_DURATION = 0.5
     SESSIONS_DIR = "sessions"
     STATIC_DIR = "static"
     LOCALES_DIR = "locales"
@@ -101,18 +106,16 @@ class Config:
     PORT = 8080
     DEFAULT_LANGUAGE = "en"
     SUPPORTED_LANGUAGES = ["en", "es"]
-    SILENCE_THRESHOLD = 0.01  # RMS below this = silence, skip transcription
+    SILENCE_THRESHOLD = 0.01
     SETTINGS_FILE = ".steno_settings.json"
 
     @classmethod
     def is_frozen(cls) -> bool:
-        """Return True when running as a PyInstaller bundle."""
         import sys
         return getattr(sys, "frozen", False)
 
     @classmethod
     def project_root(cls) -> Path:
-        """Return the project root (or PyInstaller bundle root)."""
         if cls.is_frozen():
             import sys
             return Path(sys._MEIPASS)
@@ -120,17 +123,26 @@ class Config:
 
     @classmethod
     def data_dir(cls) -> Path:
-        """Writable directory for sessions, settings, and user data.
+        override = os.environ.get("STENO_DATA_DIR")
+        if override:
+            data = Path(override).expanduser()
+        elif platform.system() == "Darwin":
+            data = Path.home() / "Library" / "Application Support" / "Steno"
+        elif platform.system() == "Windows":
+            data = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "Steno"
+        else:
+            data = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "Steno"
+        data.mkdir(parents=True, exist_ok=True)
+        return data
 
-        When running as a packaged app, this points to
-        ``~/Documents/Steno/`` so data persists between launches.
-        In development, it falls back to the project root.
-        """
-        if cls.is_frozen():
-            data = Path.home() / "Documents" / "Steno"
-            data.mkdir(parents=True, exist_ok=True)
-            return data
-        return cls.project_root()
+    @classmethod
+    def legacy_data_dirs(cls) -> list[Path]:
+        """Read-only migration sources; callers must preserve the originals."""
+        paths = [Path.home() / "Documents" / "Steno"]
+        if not cls.is_frozen():
+            paths.append(cls.project_root())
+        current = cls.data_dir().resolve()
+        return [p for p in paths if p.resolve() != current]
 
     @classmethod
     def sessions_path(cls) -> Path:
@@ -140,26 +152,20 @@ class Config:
 
     @classmethod
     def images_path(cls, session_id: str) -> Path:
-        """Return the images directory for a session, creating it if needed."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", session_id):
+            raise ValueError("Invalid session identifier")
         path = cls.sessions_path() / "images" / session_id
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @classmethod
     def logs_path(cls) -> Path:
-        """Return the logs directory, creating it if needed."""
-        path = cls.data_dir() / "logs"
+        path = Path(os.environ["STENO_LOG_DIR"]) if os.environ.get("STENO_LOG_DIR") else cls.data_dir() / "logs"
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     @classmethod
     def models_dir(cls) -> Path:
-        """Return the directory for downloaded models, creating it if needed.
-
-        Uses ~/Documents/Steno/models/ in packaged mode, or
-        a 'models/' subdirectory under data_dir() in dev mode.
-        HuggingFace Hub stores models in its standard layout inside this directory.
-        """
         path = cls.data_dir() / "models"
         path.mkdir(parents=True, exist_ok=True)
         return path
@@ -178,54 +184,107 @@ class Config:
 
     @classmethod
     def load_settings(cls) -> dict:
-        """Load saved settings from disk."""
         path = cls.settings_path()
-        if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
-        return {}
+        try:
+            settings = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(settings, dict):
+                raise ValueError("Settings must be an object")
+            return settings
+        except FileNotFoundError:
+            return {}
+        except (ValueError, UnicodeError):
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+            backup = path.with_name(f"{path.name}.corrupt-{stamp}")
+            path.replace(backup)
+            logger.warning("Invalid settings preserved at %s", backup)
+            return {}
 
     @classmethod
     def save_settings(cls, settings: dict) -> None:
-        """Save settings to disk."""
+        if not isinstance(settings, dict):
+            raise TypeError("Settings must be an object")
         path = cls.settings_path()
-        path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(settings, indent=2, ensure_ascii=False, allow_nan=False)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _cache_folder(repo: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo) or ".." in repo.split("/"):
+            raise ValueError("Invalid model repository")
+        return "models--" + repo.replace("/", "--")
+
+    @classmethod
+    def _cache_roots(cls) -> list[Path]:
+        roots = [cls.models_dir()]
+        roots += [p / "models" for p in cls.legacy_data_dirs()]
+        if os.environ.get("HF_HUB_CACHE"):
+            roots.append(Path(os.environ["HF_HUB_CACHE"]))
+        roots.append(Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub")
+        return list(dict.fromkeys(roots))
 
     @classmethod
     def model_cache_path(cls, repo: str) -> Path | None:
-        """Return the HuggingFace cache directory for a model repo, or None.
+        folder = cls._cache_folder(repo)
+        return next((root / folder for root in cls._cache_roots() if (root / folder).is_dir()), None)
 
-        Checks the custom models directory first, then falls back to the
-        default HuggingFace cache (~/.cache/huggingface/hub/) for backwards
-        compatibility with previously-downloaded models.
-        """
-        folder_name = "models--" + repo.replace("/", "--")
-        # Check custom models dir
-        custom = cls.models_dir() / folder_name
-        if custom.exists():
-            return custom
-        # Fallback: default HF cache
-        default = Path.home() / ".cache" / "huggingface" / "hub" / folder_name
-        if default.exists():
-            return default
+    @classmethod
+    def model_snapshot_path(cls, repo: str) -> Path | None:
+        from steno.backends.base import validate_model_files
+        folder = cls._cache_folder(repo)
+        backend = "mlx" if repo.startswith("mlx-community/") else "faster-whisper"
+        for root in cls._cache_roots():
+            cache = root / folder
+            ref = cache / "refs" / "main"
+            candidates = []
+            if ref.is_file():
+                revision = ref.read_text(encoding="utf-8").strip()
+                if re.fullmatch(r"[a-fA-F0-9]{40,64}", revision):
+                    candidates.append(cache / "snapshots" / revision)
+            if not candidates and (cache / "snapshots").is_dir():
+                candidates = sorted((cache / "snapshots").iterdir(), reverse=True)
+            for snapshot in candidates:
+                try:
+                    validate_model_files(snapshot, backend)
+                    return snapshot
+                except (OSError, ValueError):
+                    continue
         return None
 
     @classmethod
+    def model_is_downloaded(cls, repo: str) -> bool:
+        return cls.model_snapshot_path(repo) is not None
+
+    @classmethod
     def delete_model_cache(cls, repo: str) -> bool:
-        """Delete a model's cache. Returns True if deleted."""
-        folder_name = "models--" + repo.replace("/", "--")
-        deleted = False
-        for cache_dir in [cls.models_dir(), Path.home() / ".cache" / "huggingface" / "hub"]:
-            path = cache_dir / folder_name
-            if path.exists():
-                shutil.rmtree(path)
-                deleted = True
-        return deleted
+        # Shared/legacy caches are migration sources, never deleted by Steno.
+        path = cls.models_dir() / cls._cache_folder(repo)
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+            return True
+        return False
 
     @classmethod
     def model_cache_size_mb(cls, repo: str) -> float:
-        """Return the disk size of a model cache in MB."""
         path = cls.model_cache_path(repo)
         if path is None:
             return 0.0
-        total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        seen = set()
+        total = 0
+        for file in path.rglob("*"):
+            if file.is_file():
+                resolved = file.resolve()
+                if resolved not in seen:
+                    total += file.stat().st_size
+                    seen.add(resolved)
         return round(total / (1024 * 1024), 1)

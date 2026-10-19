@@ -1,369 +1,190 @@
-/**
- * Steno — Electron main process.
- *
- * Spawns the Python/FastAPI backend as a child process,
- * waits for it to be ready, then opens a BrowserWindow.
- */
+"use strict";
 
-const { app, BrowserWindow, Menu, dialog, shell, systemPreferences } = require("electron");
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-const net = require("net");
+const { app, BrowserWindow, Menu, dialog, shell, session, systemPreferences, ipcMain } = require("electron");
+const path = require("node:path");
+const os = require("node:os");
+const fs = require("node:fs");
+const { Backend, backendCommand } = require("./backend");
+const { UiStorage } = require("./ui-storage");
 
-const PORT = 8080;
-const HOST = "127.0.0.1";
-const SERVER_URL = `http://${HOST}:${PORT}`;
-const STARTUP_TIMEOUT_MS = 60_000; // 60 s (model download can be slow)
+// Match Config.data_dir on both supported platforms. User data is outside installs.
+const nativeDataDir = process.platform === "win32"
+  ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Steno")
+  : path.join(os.homedir(), "Library", "Application Support", "Steno");
+const dataDir = process.env.STENO_DATA_DIR || nativeDataDir;
+app.setPath("userData", dataDir);
+let mainWindow;
+let backend;
+let quitting = false;
+let backendUrl;
+let uiStorage;
+let rendererReady = false;
+let closePending = false;
+let closeTimer;
+const spanish = () => app.getLocale().startsWith("es");
+const text = (en, es) => spanish() ? es : en;
 
-let pythonProcess = null;
-let mainWindow = null;
-let electronLogStream = null;
-
-// ---------------------------------------------------------------------------
-// Electron-side log file (packaged app only)
-// ---------------------------------------------------------------------------
-
-function initElectronLog() {
-  if (!app.isPackaged) return;
-  const os = require("os");
-  const logDir = path.join(os.homedir(), "Documents", "Steno", "logs");
-  fs.mkdirSync(logDir, { recursive: true });
-  const logFile = path.join(logDir, "electron.log");
-
-  // Rotate: if existing log > 5 MB, move to .old
+function writeLog(message) {
   try {
-    const stats = fs.statSync(logFile);
-    if (stats.size > 5 * 1024 * 1024) {
-      fs.renameSync(logFile, logFile + ".old");
+    const directory = path.join(dataDir, "logs");
+    fs.mkdirSync(directory, { recursive: true });
+    const file = path.join(directory, "electron.log");
+    if (fs.existsSync(file) && fs.statSync(file).size > 5 * 1024 * 1024) {
+      fs.rmSync(file + ".old", { force: true });
+      fs.renameSync(file, file + ".old");
     }
-  } catch (_) {
-    // File doesn't exist yet — fine
-  }
-
-  electronLogStream = fs.createWriteStream(logFile, { flags: "a" });
-  electronLog("=== Steno Electron started ===");
+    fs.appendFileSync(file, `[${new Date().toISOString()}] ${message}\n`);
+  } catch (_) { /* Logging must not prevent startup or shutdown. */ }
 }
 
-function electronLog(msg) {
-  const line = `[${new Date().toISOString()}] ${msg}\n`;
-  if (electronLogStream) electronLogStream.write(line);
+function isTrustedUrl(url) {
+  try { return new URL(url).origin === backendUrl; } catch (_) { return false; }
 }
 
-// ---------------------------------------------------------------------------
-// Python server management
-// ---------------------------------------------------------------------------
-
-async function startPythonServer() {
-  // Check for a stale server occupying the port
-  const occupied = await isPortOccupied(PORT, HOST);
-  if (occupied) {
-    electronLog(`Port ${PORT} already occupied — attempting to kill stale process`);
-    try {
-      const { execSync } = require("child_process");
-      const lsofOut = execSync(`lsof -ti tcp:${PORT}`, { encoding: "utf-8" }).trim();
-      if (lsofOut) {
-        for (const pidStr of lsofOut.split("\n")) {
-          const stalePid = parseInt(pidStr, 10);
-          if (stalePid > 0) {
-            electronLog(`Killing stale process PID ${stalePid} on port ${PORT}`);
-            try { process.kill(stalePid, "SIGKILL"); } catch (_) {}
-          }
-        }
-        // Brief pause to let the OS release the port
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-    } catch (_) {
-      // lsof may fail if no process found — ignore
-    }
-  }
-
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env, STENO_ELECTRON: "1" };
-
-    if (app.isPackaged) {
-      // Production — use the PyInstaller binary bundled as an extra resource
-      const bin = path.join(
-        process.resourcesPath,
-        "steno-server",
-        "steno-server"
-      );
-
-      // Ensure the binary exists before trying to spawn it
-      if (!fs.existsSync(bin)) {
-        reject(new Error(`Backend binary not found at: ${bin}`));
-        return;
-      }
-
-      // Ensure HOME is set (needed for ~/.cache/huggingface model downloads)
-      env.HOME = env.HOME || require("os").homedir();
-
-      pythonProcess = spawn(bin, [], { env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    } else {
-      // Development — use uv from the project root
-      const cwd = path.join(__dirname, "..");
-      pythonProcess = spawn("uv", ["run", "main.py"], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-    }
-
-    let stderrBuffer = "";
-
-    pythonProcess.stdout.on("data", (d) => {
-      process.stdout.write(`[py] ${d}`);
-      electronLog(`[py:stdout] ${d.toString().trimEnd()}`);
-    });
-    pythonProcess.stderr.on("data", (d) => {
-      const text = d.toString();
-      stderrBuffer += text;
-      process.stderr.write(`[py] ${text}`);
-      electronLog(`[py:stderr] ${text.trimEnd()}`);
-    });
-
-    pythonProcess.on("error", (err) => {
-      reject(new Error(`Failed to start Python backend: ${err.message}`));
-    });
-
-    pythonProcess.on("exit", (code) => {
-      if (code !== null && code !== 0) {
-        const hint = stderrBuffer.slice(-500);
-        reject(new Error(
-          `Python backend exited with code ${code}\n\nLast output:\n${hint}`
-        ));
-      }
-    });
-
-    waitForPort(PORT, HOST, STARTUP_TIMEOUT_MS).then(resolve).catch(reject);
-  });
+function trustedSender(event) {
+  return mainWindow && event.sender === mainWindow.webContents && isTrustedUrl(event.senderFrame?.url);
 }
 
-function stopPythonServer() {
-  if (!pythonProcess) return;
+ipcMain.on("ui-storage", (event, operation, key, value) => {
+  if (!trustedSender(event)) { event.returnValue = { error: "Untrusted application frame" }; return; }
+  try { event.returnValue = { value: uiStorage.invoke(operation, key, value) }; }
+  catch (error) { event.returnValue = { error: error.message }; }
+});
 
-  const pid = pythonProcess.pid;
-  electronLog(`Stopping Python server (PID ${pid})`);
+function finishQuit() {
+  quitting = true;
+  clearTimeout(closeTimer);
+  Promise.resolve(backend?.stop()).finally(() => app.exit());
+}
 
-  // Kill the entire process group so child processes (uvicorn workers) also die
+function requestQuit() {
+  if (quitting || closePending) return;
+  if (!rendererReady || !mainWindow || mainWindow.isDestroyed()) { finishQuit(); return; }
+  closePending = true;
+  mainWindow.webContents.send("before-close");
+  closeTimer = setTimeout(() => {
+    closePending = false;
+    dialog.showErrorBox("Steno", text(
+      "Steno is still saving. Wait for your notes or recording to finish, then close the app again.",
+      "Steno sigue guardando. Espera a que terminen tus notas o grabación y vuelve a cerrar la aplicación.",
+    ));
+  }, 15000);
+}
+
+ipcMain.on("close-ready", (event, success) => {
+  if (!trustedSender(event) || !closePending) return;
+  clearTimeout(closeTimer);
+  closePending = false;
+  if (success === true) finishQuit();
+});
+
+function openExternal(url) {
   try {
-    process.kill(-pid, "SIGTERM");
-  } catch (_) {
-    // Process group kill failed — fall back to direct kill
-    try { pythonProcess.kill("SIGTERM"); } catch (_) { /* already dead */ }
-  }
-
-  // Force-kill after 3 seconds if still alive
-  const forceKillTimer = setTimeout(() => {
-    try {
-      process.kill(-pid, "SIGKILL");
-    } catch (_) {
-      try { process.kill(pid, "SIGKILL"); } catch (_) { /* already dead */ }
-    }
-    electronLog(`Force-killed Python server (PID ${pid})`);
-  }, 3000);
-
-  // Don't let the timer prevent Node from exiting
-  if (forceKillTimer.unref) forceKillTimer.unref();
-
-  pythonProcess = null;
+    if (["https:", "http:"].includes(new URL(url).protocol)) void shell.openExternal(url);
+  } catch (_) { /* Reject malformed URLs and non-web protocols. */ }
 }
 
-/**
- * Check if a port is already in use.  Returns true if occupied.
- */
-function isPortOccupied(port, host) {
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    socket.setTimeout(1000);
-    socket.on("connect", () => { socket.destroy(); resolve(true); });
-    socket.on("error", () => { socket.destroy(); resolve(false); });
-    socket.on("timeout", () => { socket.destroy(); resolve(false); });
-    socket.connect(port, host);
+async function createWindow() {
+  const appSession = session.fromPartition("persist:steno-desktop");
+  await appSession.clearStorageData({ storages: ["cookies"] });
+  await appSession.cookies.set({
+    url: backendUrl, name: "steno_auth", value: backend.token,
+    httpOnly: true, sameSite: "strict", path: "/", secure: false,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Port readiness helper
-// ---------------------------------------------------------------------------
-
-function waitForPort(port, host, timeout) {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-
-    function tryConnect() {
-      if (Date.now() - start > timeout) {
-        reject(new Error("Server startup timed out"));
-        return;
-      }
-
-      const socket = new net.Socket();
-      socket.setTimeout(1000);
-
-      socket.on("connect", () => {
-        socket.destroy();
-        resolve();
-      });
-
-      socket.on("error", () => {
-        socket.destroy();
-        setTimeout(tryConnect, 500);
-      });
-
-      socket.on("timeout", () => {
-        socket.destroy();
-        setTimeout(tryConnect, 500);
-      });
-
-      socket.connect(port, host);
-    }
-
-    tryConnect();
+  appSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const audioOnly = !details.mediaTypes || details.mediaTypes.every((type) => type === "audio");
+    callback(isTrustedUrl(contents.getURL()) && permission === "media" && audioOnly);
   });
-}
-
-// ---------------------------------------------------------------------------
-// Application Menu (macOS standard with Cmd+, for Settings)
-// ---------------------------------------------------------------------------
-
-function buildAppMenu() {
-  const template = [
-    {
-      label: app.name,
-      submenu: [
-        { role: "about" },
-        { type: "separator" },
-        {
-          label: "Settings…",
-          accelerator: "CmdOrCtrl+,",
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send("open-settings");
-              // Also call via JS in case preload bridge isn't set up
-              mainWindow.webContents.executeJavaScript(
-                "if(typeof showSettingsModal==='function')showSettingsModal();"
-              ).catch(() => {});
-            }
-          },
-        },
-        { type: "separator" },
-        { role: "services" },
-        { type: "separator" },
-        { role: "hide" },
-        { role: "hideOthers" },
-        { role: "unhide" },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
-    {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        ...(app.isPackaged ? [] : [{ role: "toggleDevTools" }]),
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" },
-        { role: "zoom" },
-        { type: "separator" },
-        { role: "front" },
-      ],
-    },
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-// ---------------------------------------------------------------------------
-// Window
-// ---------------------------------------------------------------------------
-
-function createWindow() {
+  appSession.setPermissionCheckHandler((contents, permission, origin) => {
+    return isTrustedUrl(origin) && permission === "media";
+  });
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 900,
-    minHeight: 600,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 16 },
-    title: "Steno",
+    width: 1280, height: 820, minWidth: 900, minHeight: 600, title: "Steno",
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 16 } } : {}),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
+      session: appSession, preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
     },
   });
-
-  mainWindow.loadURL(SERVER_URL);
-
-  // Open external links in the default browser
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (!isTrustedUrl(url)) { event.preventDefault(); openExternal(url); }
+  });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openExternal(url);
     return { action: "deny" };
   });
-
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.on("close", (event) => {
+    if (!quitting) { event.preventDefault(); requestQuit(); }
   });
+  await mainWindow.loadURL(backendUrl);
+  rendererReady = true;
 }
 
-// ---------------------------------------------------------------------------
-// App lifecycle
-// ---------------------------------------------------------------------------
+function buildMenu() {
+  const settings = {
+    label: text("Settings…", "Configuración…"), accelerator: "CmdOrCtrl+,",
+    click: () => mainWindow?.webContents.send("open-settings"),
+  };
+  const menus = [
+    ...(process.platform === "darwin" ? [{ role: "appMenu", submenu: [
+      { role: "about" }, settings, { type: "separator" }, { role: "hide" }, { role: "quit" },
+    ] }] : [{ label: text("File", "Archivo"), submenu: [settings, { role: "quit" }] }]),
+    { role: "editMenu" },
+    { label: text("View", "Ver"), submenu: [
+      { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" },
+      ...(app.isPackaged ? [] : [{ role: "toggleDevTools" }]),
+    ] },
+    { role: "windowMenu" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(menus));
+}
 
-app.whenReady().then(async () => {
-  initElectronLog();
-  try {
-    // Request microphone access on macOS before starting
-    if (process.platform === "darwin") {
-      const micStatus = systemPreferences.getMediaAccessStatus("microphone");
-      if (micStatus !== "granted") {
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow?.isMinimized()) mainWindow.restore();
+    mainWindow?.focus();
+  });
+  app.whenReady().then(async () => {
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+      uiStorage = new UiStorage(path.join(dataDir, "ui-state.json"), writeLog);
+      buildMenu();
+      if (process.platform === "darwin" && systemPreferences.getMediaAccessStatus("microphone") !== "granted") {
         await systemPreferences.askForMediaAccess("microphone");
       }
+      const projectRoot = path.join(__dirname, "..");
+      const [command, args] = backendCommand(app.isPackaged, process.resourcesPath, projectRoot);
+      backend = new Backend({
+        command, args, cwd: app.isPackaged ? dataDir : projectRoot,
+        env: { STENO_DATA_DIR: dataDir }, log: writeLog,
+        onExit: () => {
+          if (quitting) return;
+          rendererReady = false;
+          dialog.showErrorBox("Steno", text(
+            "The transcription engine stopped. Reopen Steno to continue. Your saved sessions are preserved.",
+            "El motor de transcripción se detuvo. Abre Steno de nuevo para continuar. Tus sesiones guardadas se conservan.",
+          ));
+          app.quit();
+        },
+      });
+      backendUrl = await backend.start();
+      await createWindow();
+    } catch (error) {
+      writeLog(error.message);
+      dialog.showErrorBox("Steno", text(
+        "Could not start Steno. See the logs in the application data folder. For source development run uv sync first.",
+        "No se pudo iniciar Steno. Consulta los registros en la carpeta de datos. Para desarrollo ejecuta uv sync primero.",
+      ));
+      app.quit();
     }
-
-    buildAppMenu();
-    await startPythonServer();
-    createWindow();
-  } catch (err) {
-    const message = err.message || String(err);
-    let detail = `Could not start the transcription engine.\n\n${message}`;
-    if (app.isPackaged) {
-      detail += `\n\nResources path: ${process.resourcesPath}`;
-    }
-    dialog.showErrorBox("Steno", detail);
-    app.quit();
-  }
-});
-
-app.on("window-all-closed", () => {
-  stopPythonServer();
-  app.quit();
-});
-
-app.on("before-quit", stopPythonServer);
-
-app.on("activate", () => {
-  // macOS: re-create window when clicking the dock icon
-  if (mainWindow === null) {
-    createWindow();
-  }
-});
+  });
+  app.on("window-all-closed", () => app.quit());
+  app.on("before-quit", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    requestQuit();
+  });
+}

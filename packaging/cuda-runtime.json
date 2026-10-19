@@ -1,0 +1,28 @@
+{
+  "platform": "windows-x86_64",
+  "cuda": "12.4.1",
+  "cudnn": "9.1.1.17",
+  "driver_recommendation": "NVIDIA Windows driver 551.78 or newer; validate with the packaged inference smoke test",
+  "artifacts": [
+    {
+      "name": "cudart",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-windows-x86_64-12.4.127-archive.zip",
+      "sha256": "6a1c32e68ee1a95ca17334691ff9ad1ffe7f352c24a083d55e4c96b8063b2bcb"
+    },
+    {
+      "name": "cublas",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/libcublas/windows-x86_64/libcublas-windows-x86_64-12.4.5.8-archive.zip",
+      "sha256": "698140f12da055a3709eee2e022fcfe7bc8edf31f30115e3f7a5c877a9491de5"
+    },
+    {
+      "name": "nvrtc",
+      "url": "https://developer.download.nvidia.com/compute/cuda/redist/cuda_nvrtc/windows-x86_64/cuda_nvrtc-windows-x86_64-12.4.127-archive.zip",
+      "sha256": "f140545e06d0d10780c1382a577db2e2c242db7a2d94970f0e6026b2d01aeb1b"
+    },
+    {
+      "name": "cudnn",
+      "url": "https://developer.download.nvidia.com/compute/cudnn/redist/cudnn/windows-x86_64/cudnn-windows-x86_64-9.1.1.17_cuda12-archive.zip",
+      "sha256": "3f1efb1a82e480594594e8b1fc8075a4852b4ada5a1fea3c8ec4b3ed1e5122ed"
+    }
+  ]
+}

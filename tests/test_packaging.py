@@ -1,177 +1,89 @@
-"""Tests for packaging fixes: logging, paths, model storage, build script."""
-
-import os
-import logging
+"""Behavior checks for desktop startup and native build inputs."""
+import importlib.util
+import json
 from pathlib import Path
-from unittest.mock import patch
+import socket
+import sys
+import zipfile
 
 import pytest
 
-from steno.config import Config
+ROOT = Path(__file__).resolve().parents[1]
 
 
-class TestLogging:
-    """Test that frozen mode sets up file logging."""
-
-    def test_setup_logging_creates_file_handler_when_frozen(self, tmp_path, monkeypatch):
-        """When frozen, a RotatingFileHandler can be created in the logs dir."""
-        log_dir = tmp_path / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-
-        from logging.handlers import RotatingFileHandler
-
-        handler = RotatingFileHandler(
-            log_dir / "steno.log", maxBytes=5 * 1024 * 1024, backupCount=3
-        )
-        handler.setLevel(logging.DEBUG)
-
-        assert isinstance(handler, RotatingFileHandler)
-        assert handler.maxBytes == 5 * 1024 * 1024
-        assert handler.backupCount == 3
-        handler.close()
-
-    def test_logs_path_returns_correct_dir_dev(self):
-        """In dev mode, logs_path() should be under project root."""
-        logs = Config.logs_path()
-        assert logs.exists()
-        assert logs.name == "logs"
-
-    def test_logs_path_returns_correct_dir_frozen(self, monkeypatch):
-        """In frozen mode, logs_path() should be under ~/Documents/Steno/."""
-        monkeypatch.setattr(Config, "is_frozen", classmethod(lambda cls: True))
-        monkeypatch.setattr(
-            Config, "data_dir",
-            classmethod(lambda cls: Path.home() / "Documents" / "Steno"),
-        )
-        logs = Config.logs_path()
-        assert str(logs).endswith("Steno/logs")
+def module_from_file(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-class TestConfigPaths:
-    """Test Config path methods for dev and frozen modes."""
-
-    def test_models_dir_exists_after_call(self):
-        """models_dir() should create the directory if it doesn't exist."""
-        models = Config.models_dir()
-        assert models.exists()
-        assert models.is_dir()
-        assert models.name == "models"
-
-    def test_models_dir_frozen(self, monkeypatch):
-        """In frozen mode, models_dir() should be ~/Documents/Steno/models/."""
-        monkeypatch.setattr(Config, "is_frozen", classmethod(lambda cls: True))
-        monkeypatch.setattr(
-            Config, "data_dir",
-            classmethod(lambda cls: Path.home() / "Documents" / "Steno"),
-        )
-        models = Config.models_dir()
-        expected = Path.home() / "Documents" / "Steno" / "models"
-        assert models == expected
-
-    def test_model_cache_path_not_found(self):
-        """model_cache_path should return None for a nonexistent model."""
-        result = Config.model_cache_path("nonexistent/model-xyz")
-        assert result is None
-
-    def test_model_cache_path_finds_in_custom_dir(self, tmp_path, monkeypatch):
-        """model_cache_path should find models in the custom models_dir."""
-        monkeypatch.setattr(Config, "models_dir", classmethod(lambda cls: tmp_path))
-        # Create a fake model directory
-        model_dir = tmp_path / "models--test--model"
-        model_dir.mkdir()
-        result = Config.model_cache_path("test/model")
-        assert result == model_dir
-
-    def test_model_cache_size_zero_for_missing(self):
-        """model_cache_size_mb should return 0 for nonexistent models."""
-        assert Config.model_cache_size_mb("nonexistent/model") == 0.0
-
-    def test_model_cache_size_for_existing(self, tmp_path, monkeypatch):
-        """model_cache_size_mb should return the size of cached model files."""
-        monkeypatch.setattr(Config, "models_dir", classmethod(lambda cls: tmp_path))
-        model_dir = tmp_path / "models--test--sized"
-        model_dir.mkdir()
-        # Write a ~1.5 MB file so rounding doesn't lose it
-        (model_dir / "weights.bin").write_bytes(b"x" * (1024 * 1024 + 512 * 1024))
-        size = Config.model_cache_size_mb("test/sized")
-        assert size >= 1.0  # Should be ~1.5 MB
-
-    def test_delete_model_cache(self, tmp_path, monkeypatch):
-        """delete_model_cache should remove the model directory."""
-        monkeypatch.setattr(Config, "models_dir", classmethod(lambda cls: tmp_path))
-        model_dir = tmp_path / "models--test--deleteme"
-        model_dir.mkdir()
-        (model_dir / "file.bin").write_bytes(b"data")
-        assert Config.delete_model_cache("test/deleteme") is True
-        assert not model_dir.exists()
-
-    def test_sessions_path_dev(self):
-        """sessions_path() should work in dev mode."""
-        sessions = Config.sessions_path()
-        assert sessions.exists()
-        assert sessions.name == "sessions"
+def test_loopback_binding_is_held_and_dynamic():
+    entry = module_from_file("desktop_entry", ROOT / "main.py")
+    first = entry.bind_loopback()
+    second = entry.bind_loopback()
+    try:
+        assert first.getsockname()[0] == "127.0.0.1"
+        assert first.getsockname()[1] != second.getsockname()[1]
+        with socket.socket() as conflict, pytest.raises(OSError):
+            conflict.bind(first.getsockname())
+    finally:
+        first.close()
+        second.close()
 
 
-class TestBuildScript:
-    """Validate the build script includes required directives."""
-
-    @pytest.fixture
-    def build_script(self):
-        script_path = Path(__file__).parent.parent / "scripts" / "build-python.sh"
-        return script_path.read_text()
-
-    def test_collect_all_mlx(self, build_script):
-        assert "--collect-all mlx" in build_script
-
-    def test_collect_all_mlx_whisper(self, build_script):
-        assert "--collect-all mlx_whisper" in build_script
-
-    def test_collect_all_sounddevice(self, build_script):
-        assert "--collect-all sounddevice" in build_script
-
-    def test_codesign_step(self, build_script):
-        assert "codesign --force --sign -" in build_script
-
-    def test_add_data_static(self, build_script):
-        assert '--add-data "static:static"' in build_script
-
-    def test_add_data_locales(self, build_script):
-        assert '--add-data "locales:locales"' in build_script
+def test_desktop_refuses_missing_token(monkeypatch):
+    entry = module_from_file("desktop_entry", ROOT / "main.py")
+    monkeypatch.setenv("STENO_ELECTRON", "1")
+    monkeypatch.delenv("STENO_AUTH_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="session token"):
+        entry.main()
 
 
-class TestModelStorage:
-    """Test that model downloads would use the custom directory."""
+def test_runtime_extraction_contains_only_dlls_and_licenses(tmp_path):
+    fetcher = module_from_file("runtime_fetcher", ROOT / "scripts" / "fetch_cuda_runtime.py")
+    archive = tmp_path / "runtime.zip"
+    with zipfile.ZipFile(archive, "w") as stream:
+        stream.writestr("cuda/bin/cublas64_12.dll", b"runtime")
+        stream.writestr("../../escaped.dll", b"flattened")
+        stream.writestr("..\\..\\windows.dll", b"flattened on Windows")
+        stream.writestr("cuda/LICENSE.txt", b"license terms")
+        stream.writestr("cuda/include/cublas.h", b"not shipped")
+        stream.writestr("cuda/setup.exe", b"not executed")
+    target = tmp_path / "bundle"
+    fetcher.extract_runtime(archive, target, "cuda")
+    assert (target / "cublas64_12.dll").read_bytes() == b"runtime"
+    assert (target / "escaped.dll").read_bytes() == b"flattened"
+    assert (target / "windows.dll").read_bytes() == b"flattened on Windows"
+    assert not (tmp_path.parent / "escaped.dll").exists()
+    assert sorted(path.name for path in target.iterdir()) == ["cublas64_12.dll", "escaped.dll", "licenses", "windows.dll"]
+    assert (target / "licenses" / "cuda-LICENSE.txt").read_bytes() == b"license terms"
 
-    def test_hf_hub_cache_env_set(self):
-        """HF_HUB_CACHE should point to models_dir after main.py sets it."""
-        # In dev, this should be set by main.py's import-time code
-        # We verify the Config method returns the right path
-        models_dir = Config.models_dir()
-        assert models_dir.exists()
 
-    def test_download_with_progress_uses_cache_dir(self, monkeypatch):
-        """_download_with_progress should pass cache_dir to snapshot_download."""
-        from steno import transcriber
+def test_build_requires_cuda_on_windows():
+    builder = module_from_file("backend_builder", ROOT / "scripts" / "build_python.py")
+    with pytest.raises(ValueError, match="CUDA"):
+        builder.build_arguments("win32")
+    with pytest.raises(ValueError, match="native"):
+        builder.build_arguments("linux")
+    args = builder.build_arguments("win32", Path("runtime"), [Path("msvcp140.dll")])
+    binaries = [args[index + 1] for index, value in enumerate(args) if value == "--add-binary"]
+    assert "msvcp140.dll:." in binaries
+    assert "runtime:cuda" in args
 
-        called_with = {}
 
-        def fake_snapshot_download(repo, cache_dir=None, **kwargs):
-            called_with["repo"] = repo
-            called_with["cache_dir"] = cache_dir
+def test_version_matches_all_manifests():
+    import tomllib
+    js = json.loads((ROOT / "package.json").read_text())
+    python = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    assert js["version"] == python["project"]["version"]
+    assert js["version"] == "1.0.0-beta.1"
 
-        monkeypatch.setattr(
-            "steno.transcriber.snapshot_download",
-            fake_snapshot_download,
-            raising=False,
-        )
-        # We need to patch the import inside the function
-        import importlib
 
-        def patched_download(repo, progress_state=None):
-            fake_snapshot_download(repo, cache_dir=str(Config.models_dir()))
-
-        monkeypatch.setattr(transcriber, "_download_with_progress", patched_download)
-        transcriber._download_with_progress("test/repo")
-
-        assert called_with["repo"] == "test/repo"
-        assert called_with["cache_dir"] == str(Config.models_dir())
+def test_tracked_native_icons_are_readable():
+    # Build extra is required only for artifact generation, not unit tests.
+    ico = (ROOT / "packaging" / "resources" / "icon.ico").read_bytes()
+    icns = (ROOT / "packaging" / "resources" / "icon.icns").read_bytes()
+    assert ico[:4] == b"\x00\x00\x01\x00"
+    assert icns[:4] == b"icns"
+    assert int.from_bytes(icns[4:8], "big") == len(icns)

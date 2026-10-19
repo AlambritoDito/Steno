@@ -1,292 +1,88 @@
-<p align="center">
-  <img src="assets/steno-logo-dark.png" alt="Steno" height="48">
-</p>
+<p align="center"><img src="assets/steno-logo-dark.png" alt="Steno" height="48"></p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/platform-macOS-000000?style=flat-square&logo=apple&logoColor=white" alt="macOS">
-  <img src="https://img.shields.io/badge/Apple%20Silicon-native-000000?style=flat-square&logo=apple&logoColor=white" alt="Apple Silicon">
-  <img src="https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
-  <img src="https://img.shields.io/badge/privacy-100%25%20local-blue?style=flat-square" alt="100% Local">
-</p>
+# Steno
 
-<h1 align="center">Steno</h1>
+Local desktop transcription for classes and meetings. Record a microphone, transcribe an audio file, take Markdown notes, and keep the audio and transcript on your computer.
 
-<p align="center">
-  <strong>Real-time local transcription for classes and meetings.</strong><br>
-  Runs 100% on your Mac — no cloud, no data leaves your machine.<br>
-  Powered by Whisper via MLX for fast, private, Apple Silicon-native transcription.
-</p>
+**1.0.0-beta.1 development:** this branch implements the desktop release foundation. It is not a certified stable 1.0. See the [release checklist](docs/RELEASE.md) for completed checks and the hardware/installer gates still required. Downloadable installers are provided only when attached to a [GitHub release](https://github.com/AlambritoDito/Steno/releases); a source archive is not an installer.
 
-<p align="center">
-  <em>Transcripcion local en tiempo real para clases y juntas.</em><br>
-  <em>Corre 100% en tu Mac — sin nube, ningun dato sale de tu maquina.</em>
-</p>
+## Platforms
 
----
+| Platform | Transcription | Distribution target |
+|---|---|---|
+| Apple Silicon, macOS 27 | MLX / Metal | ARM64 DMG; validation target macOS 27.0.1 |
+| Windows 11 x64 | faster-whisper / CTranslate2, NVIDIA CUDA or CPU int8 | Per-user NSIS installer |
+
+Intel Macs, Windows ARM, Windows 10, Linux and the separate Steno Server product are outside this release's support matrix. CPU transcription is supported on Windows but may be slower than real time.
+
+Windows installers include the CUDA 12.4.1, cuBLAS and cuDNN 9.1 libraries. No Python, CUDA Toolkit, system PATH changes or manual DLL installation are required. NVIDIA acceleration requires a compatible GPU and driver; the bundled runtime's recommended Windows driver baseline is 551.78 or newer, subject to the real-device release gate. If CUDA cannot initialize, Steno uses CPU and displays the reason. It does not install or update drivers. A failure during inference preserves the source audio and offers retry, including CPU retry.
 
 ## Features
 
-- **Real-time transcription** — Live audio-to-text with a word-by-word typing animation, powered by [MLX-Whisper](https://github.com/ml-explore/mlx-examples) running natively on Apple Silicon
-- **Multiple Whisper models** — Choose from 5 model sizes (tiny to large-v3). Download several and switch at runtime — use a lightweight model in quiet rooms, the full model in noisy classrooms
-- **First-launch setup** — Detects your hardware (chip + RAM) and recommends the best model. Downloads it before you start so there are no delays
-- **Audio file transcription** — Upload pre-recorded lectures or meetings (WAV, MP3, M4A, OGG, FLAC, WebM, MP4) to transcribe them
-- **Markdown notes** — Take rich notes alongside the live transcript with a built-in editor
-- **Image support** — Drag & drop whiteboard photos, screenshots, or diagrams directly into your notes
-- **Session management** — Save, browse, and export sessions as clean `.md` files
-- **Multilingual UI** — English and Spanish with auto-detection, switchable at runtime
-- **Desktop app (Electron)** — One-click install for non-technical users. No terminal, no Python setup
-- **100% offline** — Everything runs locally. No accounts, no telemetry, no data ever leaves your machine
+- Live microphone transcription and a light mode that records audio without inference.
+- Separate audio takes when stopping/resuming, with playback and retranscription.
+- File transcription for WAV, MP3, M4A, OGG, FLAC, WebM and MP4 (up to 1 GB).
+- Five model sizes: tiny, base, small, large-v3-turbo and large-v3; downloadable with progress and resumable cache files.
+- Durable job status, cancellation, retry and recovery after interrupted processing.
+- Editable Markdown notes, local drafts, images, session history and portable exports.
+- English and Spanish interface; automatic or selected transcription language.
+- SQLite storage with transactional writes. Existing Markdown sessions are imported intact; original files are preserved.
 
-## Installation
+Only one inference operation runs at a time. Stop ends microphone capture immediately; the interface remains in **Processing** while the saved audio finishes transcribing. Keep Steno open to finish, or let it recover the saved work on the next launch. Cancellation is cooperative: native inference already running finishes its current call before cancellation is acknowledged, and its result is discarded.
 
-### Option A — Desktop App (recommended for most users)
+System audio capture for Zoom/Meet/Teams, speaker identification, full-text search, summaries, PDF export and cloud sync remain future work.
 
-Download the latest `.dmg` from [Releases](https://github.com/AlambritoDito/Steno/releases), open it, and drag **Steno** to your Applications folder. Double-click to launch.
+## Install and first launch
 
-> Requires a Mac with Apple Silicon (M1/M2/M3/M4) and macOS 13+.
+When a beta installer is available, download the file matching your platform from Releases. On Mac, open the DMG and drag Steno into Applications. On Windows, run the NSIS installer under your own user account.
 
-### Option B — Run from source (developers)
+These builds have **no public code-signing certificate or notarization**. macOS may require allowing Steno in System Settings → Privacy & Security after attempting to open it. Windows may display an unrecognized-publisher/SmartScreen warning. Use only the project's release assets and compare their SHA-256 checksums. No instruction to disable system-wide protection is required. Managed devices may prohibit unsigned applications.
 
-| Requirement | Details |
-|---|---|
-| **Hardware** | Mac with Apple Silicon (M1 / M2 / M3 / M4) |
-| **OS** | macOS 13 Ventura or later |
-| **Python** | 3.11 or higher |
-| **Package manager** | [uv](https://docs.astral.sh/uv/) |
+On first launch, select a microphone and a model. The model download needs internet access and available disk space. Once downloaded and validated, transcription, notes and history work offline. Start with `tiny` to verify installation, then choose a larger model if your hardware permits.
 
-```bash
-git clone https://github.com/AlambritoDito/Steno.git
-cd Steno
-uv sync
-uv run main.py
+## Data and privacy
+
+Audio, notes and transcripts remain local. Model downloads contact Hugging Face; update checks at launch and every four hours contact GitHub (failure does not prevent offline use). There are no accounts, analytics, cloud transcription or CDN scripts. Models are not included in the installer.
+
+The desktop shell passes the native Electron user-data folder to the backend. Source runs default to `~/Library/Application Support/Steno` on Mac and `%LOCALAPPDATA%/Steno` on Windows. `STENO_DATA_DIR` overrides the location for development and testing. Use Settings diagnostics to identify the active path. Sessions live in `sessions/steno.sqlite3`, alongside `audio/` and `images/`; models live in `models/`. Close Steno before copying the entire data folder for a manual backup.
+
+The importer also reads earlier `~/Documents/Steno/sessions` installations and source checkout sessions. It never rewrites or deletes those originals. Deleting an imported session removes Steno's managed copies and prevents the original from being imported again. Reinstalling or uninstalling the app preserves user data by default.
+
+Export `.md` for a document with embedded images, or `.zip` for Markdown, relative image files, audio takes and session metadata. The ZIP can be opened outside Steno; it is not currently a supported restore/import format.
+
+## Run from source
+
+Use Python **3.12**, [uv](https://docs.astral.sh/uv/), and Node.js 22+ for Electron and JavaScript tests.
+
+```sh
+uv sync --frozen --extra dev
+uv run --no-sync main.py
 ```
 
-Steno opens automatically at **http://localhost:8080**.
+The browser opens a local development server at `http://127.0.0.1:8080`. For desktop development:
 
-## First Launch
-
-On the first run, Steno detects your hardware and recommends the best Whisper model for your Mac. You pick a model and it downloads before anything else happens — no lag, no bugs from lazy loading.
-
-| Model | Size | RAM | Quality | Speed |
-|---|---|---|---|---|
-| tiny | 75 MB | 4 GB+ | Basic | Fastest |
-| base | 145 MB | 4 GB+ | Fair | Very fast |
-| small | 490 MB | 8 GB+ | Good | Fast |
-| **large-v3-turbo** | **1.6 GB** | **16 GB+** | **Excellent** | **Moderate** |
-| large-v3 | 3.1 GB | 32 GB+ | Best | Slow |
-
-Models are cached in `~/.cache/huggingface/hub/` and only downloaded once.
-
-## Usage
-
-### Live Transcription
-
-1. Launch Steno
-2. Enter a session name (e.g. *Physics — Thermodynamics*)
-3. Select your microphone and click **Start Session**
-4. Click **Start Recording** — the transcript streams in real time with a typing animation
-5. Take notes in the right panel using Markdown
-6. Drag & drop whiteboard photos or screenshots into the editor
-7. Click **Export session (.md)** when done
-
-### Switching Models
-
-Click the gear icon next to the model selector to open the **Model Manager**. From there you can download additional models and switch between them instantly. Use a lightweight model for quiet environments and the full model for noisy classrooms.
-
-### Transcribing Audio Files
-
-At the bottom of the transcript panel, click **Upload audio file to transcribe** and select a file. Steno transcribes the entire file and displays the segments with timestamps.
-
-Supported formats: `.wav`, `.mp3`, `.m4a`, `.ogg`, `.flac`, `.webm`, `.mp4`
-
-## Architecture
-
-```
-steno/
-├── main.py                 # Entry point (starts the FastAPI server)
-├── package.json            # Electron config & build scripts
-├── electron/
-│   ├── main.js             # Electron main process (spawns Python, opens window)
-│   └── preload.js          # Preload script (exposes isElectron flag)
-├── scripts/
-│   └── build-python.sh     # Bundle Python backend with PyInstaller
-├── steno/
-│   ├── server.py           # FastAPI app, REST API, WebSocket
-│   ├── transcriber.py      # MLX-Whisper wrapper (streaming + file)
-│   ├── audio.py            # Microphone capture via sounddevice
-│   ├── session.py          # Session management (save/load/export)
-│   ├── config.py           # Configuration, hardware detection, model registry
-│   └── i18n.py             # Internationalization helpers
-├── static/
-│   └── index.html          # Complete UI (inline CSS + JS)
-├── locales/
-│   ├── en.json             # English strings
-│   └── es.json             # Spanish strings
-├── sessions/               # Saved session files (.md)
-├── tests/                  # Test suite (pytest)
-└── pyproject.toml          # Python project config & dependencies
-```
-
-### How It Works
-
-1. **Python backend** — A FastAPI server (`steno/server.py`) handles REST endpoints and a WebSocket for real-time transcription. Audio is captured via `sounddevice`, chunked into 5-second segments, and transcribed by `mlx-whisper`
-2. **Frontend** — A single-file vanilla HTML/CSS/JS app (`static/index.html`) connects to the backend via WebSocket and renders transcripts with a word-by-word typing animation
-3. **Electron shell** — `electron/main.js` spawns the Python server as a child process, waits for it to be ready (port 8080), then opens a `BrowserWindow` pointing to `http://127.0.0.1:8080`. When the window closes, the Python process is killed
-
-### Data Flow
-
-```
-Microphone → sounddevice → NumPy chunks → mlx-whisper → FastAPI WebSocket → Browser/Electron
-```
-
-All processing happens on-device via the Apple Silicon GPU. No network requests are made for transcription.
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Transcription | [mlx-whisper](https://github.com/ml-explore/mlx-examples) (5 model sizes) |
-| Audio capture | [sounddevice](https://python-sounddevice.readthedocs.io/) + NumPy |
-| Backend | [FastAPI](https://fastapi.tiangolo.com/) + WebSockets + [uvicorn](https://www.uvicorn.org/) |
-| Frontend | Vanilla HTML/CSS/JS — single file, no build step |
-| Editor | [CodeMirror 6](https://codemirror.net/) (CDN) |
-| Markdown rendering | [marked.js](https://marked.js.org/) (CDN) |
-| Desktop shell | [Electron](https://www.electronjs.org/) |
-| Python packaging | [PyInstaller](https://pyinstaller.org/) |
-| Package manager | [uv](https://docs.astral.sh/uv/) |
-
-## Development
-
-### Python backend
-
-```bash
-# Install with dev dependencies
-uv sync --extra dev
-
-# Run tests
-uv run pytest tests/ -v
-
-# Start the dev server (opens browser)
-uv run main.py
-```
-
-### Electron (development mode)
-
-```bash
-# Install Node dependencies
-npm install
-
-# Start Electron (spawns Python via uv automatically)
+```sh
+npm ci
 npm start
 ```
 
-In development mode, `npm start` runs `electron .` which spawns `uv run main.py` as a child process and opens the app in an Electron window instead of a browser tab.
+PyAV decodes audio inside the application; no `ffmpeg` executable is needed. Native sounddevice/PortAudio binaries are collected into the installer. If source microphone capture cannot load PortAudio, install its platform prerequisite and check microphone privacy permissions. Desktop users should use a complete installer.
 
-### Building the Desktop App
+## Tests and builds
 
-```bash
-# 1. Bundle the Python backend with PyInstaller
-npm run build:python
-
-# 2. Package everything into a macOS .dmg
-npm run build:electron
-
-# Or do both in one step:
+```sh
+uv sync --frozen --extra dev --extra build
+uv run --no-sync pytest tests/ -v
+node --test electron/*.test.js tests/*.test.cjs
+npm ci
 npm run build
+uv run --no-sync python scripts/smoke_backend.py
 ```
 
-The build process:
+Build each target on its own operating system: macOS ARM64 or Windows x64. Windows packaging also needs the Visual Studio C++ build tools redistributable directory (automatically discovered with `vswhere`, or supplied with `STENO_VC_REDIST_DIR`) so the installer can include the app-local MSVC/OpenMP DLLs. This is a build-machine requirement, not an end-user requirement. The backend is written to `dist/steno-server/`; installers and checksums go to `release/`. Windows builds download the official NVIDIA redistributables using the pinned URLs and SHA-256 hashes in `packaging/cuda-runtime.json`. The workflow never installs a GPU driver.
 
-1. `scripts/build-python.sh` uses PyInstaller to create a standalone `dist/steno-server/` binary that includes all Python dependencies, static files, and locale files
-2. `electron-builder` wraps the Electron shell and the Python binary into a `.app` bundle, then creates a `.dmg` for distribution
-
-#### Build Prerequisites
-
-```bash
-# System dependencies
-brew install portaudio    # required by sounddevice
-
-# Python dependencies
-uv sync
-
-# Node dependencies
-npm install
-```
-
-### Where Data Lives
-
-| What | Development | Packaged App |
-|---|---|---|
-| Sessions | `./sessions/` | `~/Documents/Steno/sessions/` |
-| Settings | `./.steno_settings.json` | `~/Documents/Steno/.steno_settings.json` |
-| Models | `~/.cache/huggingface/hub/` | `~/.cache/huggingface/hub/` |
-| Static files | `./static/` | Inside the `.app` bundle |
-| Locales | `./locales/` | Inside the `.app` bundle |
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | Serve the UI |
-| `GET` | `/api/status` | Server status, model info, active sessions |
-| `GET` | `/api/devices` | List available microphones |
-| `GET` | `/api/hardware` | Detect chip/RAM, recommend model |
-| `POST` | `/api/setup/select-model` | Download & activate a model (first launch) |
-| `GET` | `/api/models` | List all models with download/active status |
-| `POST` | `/api/models/download` | Download a model without activating |
-| `POST` | `/api/models/active` | Switch the active model |
-| `GET` | `/api/sessions` | List saved sessions |
-| `POST` | `/api/sessions/new` | Create a new session |
-| `POST` | `/api/sessions/{id}/note` | Add a Markdown note |
-| `POST` | `/api/sessions/{id}/image` | Upload an image |
-| `POST` | `/api/sessions/{id}/transcribe-file` | Upload & transcribe an audio file |
-| `POST` | `/api/sessions/{id}/export` | Export session as `.md` |
-| `DELETE` | `/api/sessions/{id}` | Delete a session |
-| `GET` | `/api/i18n/{lang}` | Get locale strings |
-| `GET` | `/api/languages` | List supported languages |
-| `WS` | `/ws/{session_id}` | Real-time transcription channel |
-
-## Languages
-
-The UI is available in **English** and **Spanish**. Language is auto-detected from your browser (`navigator.language`) and can be toggled at any time without reloading.
-
-## Privacy
-
-Steno is **100% local and fully offline**.
-
-- All audio processing happens on-device via Apple Silicon GPU
-- Transcription runs through MLX — no API calls, no cloud services
-- Session data is stored as plain Markdown files on your filesystem
-- No accounts, no analytics, no telemetry
-- No network requests except loading CodeMirror and marked.js from CDN on first page load
-
-## Roadmap
-
-- [x] **Desktop app (Electron)** — One-click install for non-technical users
-- [x] **Multi-model support** — Download and switch between models at runtime
-- [x] **Audio file transcription** — Upload and transcribe pre-recorded audio
-- [ ] **Virtual meeting capture** — Record and transcribe Zoom, Google Meet, and Teams sessions by capturing system audio
-- [ ] **Speaker diarization** — Identify and label different speakers in the transcript
-- [ ] **Search across sessions** — Full-text search over all past transcripts and notes
-- [ ] **Additional languages** — More UI translations and transcription language support
-- [ ] **PDF export** — Export sessions as formatted PDF documents
-
-## Branding
-
-The `assets/` directory contains the official Steno brand assets:
-
-| Asset | File | Usage |
-|---|---|---|
-| App icon | `steno-icon.png` | Dock icon, favicon, app launcher |
-| Logo (dark) | `steno-logo-dark.png` | Headers and dark backgrounds |
-| Logo (light) | `steno-logo-light.png` | Light backgrounds and light-mode UI |
-| Wordmark | `steno-wordmark.png` | Text-only contexts (documentation, banners) |
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a pull request.
+See [architecture and API](docs/ARCHITECTURE.md), [release verification](docs/RELEASE.md), and [contribution guidelines](CONTRIBUTING.md).
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+Steno is MIT licensed. Bundled third-party components retain their licenses, including the vendored Markdown renderer/sanitizer and NVIDIA runtime redistribution notices. See [LICENSE](LICENSE) and [third-party notices](docs/THIRD_PARTY.md).

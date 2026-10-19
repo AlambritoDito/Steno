@@ -1,0 +1,32 @@
+name: Desktop checks
+on:
+  push:
+    branches: [main, 'codex/**', 'release/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.23'
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: uv sync --frozen --extra dev
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: uv run --frozen --extra dev pytest tests/ -v
+      - run: npm run test:electron
+      - run: npm run test:ui
+      - run: npm audit --omit=dev --audit-level=high

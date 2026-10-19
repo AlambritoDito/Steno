@@ -13,6 +13,9 @@ def clean_state(tmp_path, monkeypatch):
     """Use a temporary directory for sessions and reset state."""
     monkeypatch.setattr(Config, "sessions_path", classmethod(lambda cls: tmp_path))
     _sessions.clear()
+    from steno.jobs import JobManager
+    app.state.jobs = JobManager()
+    app.state.model_busy = False
     # Manually set transcriber since lifespan doesn't run in ASGITransport
     app.state.transcriber = Transcriber()
     app.state.setup_complete = True
@@ -23,7 +26,7 @@ def clean_state(tmp_path, monkeypatch):
 def client():
     """Async HTTP client for testing."""
     transport = ASGITransport(app=app)
-    return AsyncClient(transport=transport, base_url="http://test")
+    return AsyncClient(transport=transport, base_url="http://127.0.0.1")
 
 
 @pytest.mark.asyncio
@@ -46,7 +49,9 @@ async def test_get_status(client):
 @pytest.mark.asyncio
 async def test_get_devices(client):
     """GET /api/devices returns 200 with a list."""
-    resp = await client.get("/api/devices")
+    from unittest.mock import patch
+    with patch("steno.server.AudioCapture.list_devices", return_value=[]):
+        resp = await client.get("/api/devices")
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
@@ -133,7 +138,7 @@ async def test_websocket_connect_and_ping(client):
 
     async with AsyncClient(
         transport=ASGIWebSocketTransport(app=app),
-        base_url="http://test",
+        base_url="http://127.0.0.1",
     ) as ws_client:
         async with aconnect_ws(f"/ws/{session_id}", ws_client) as ws:
             # Receive initial status
@@ -154,7 +159,7 @@ async def test_websocket_invalid_session():
 
     async with AsyncClient(
         transport=ASGIWebSocketTransport(app=app),
-        base_url="http://test",
+        base_url="http://127.0.0.1",
     ) as ws_client:
         try:
             async with aconnect_ws("/ws/nonexistent", ws_client) as ws:
@@ -292,3 +297,179 @@ async def test_update_check_handles_network_error(client, monkeypatch):
     data = resp.json()
     assert data["update_available"] is False
     assert "error" in data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/api/setup/select-model", "/api/models/active"])
+async def test_failed_candidate_keeps_selected_model_setup_and_settings(client, monkeypatch, endpoint):
+    from steno import server
+    original = app.state.transcriber
+    app.state.setup_complete = False
+    original_settings = {"model_key": "base", "setup_complete": False}
+    Config.save_settings(original_settings)
+    candidates = []
+    class BrokenCandidate:
+        def __init__(self, model_name):
+            self.unloaded = False
+            candidates.append(self)
+        def warmup(self):
+            raise RuntimeError("weights cannot load")
+        def unload(self):
+            self.unloaded = True
+        @staticmethod
+        def download_model_by_repo(*args):
+            pass
+    monkeypatch.setattr(server, "Transcriber", BrokenCandidate)
+    monkeypatch.setattr(Config, "model_is_downloaded", classmethod(lambda cls, repo: True))
+    response = await client.post(endpoint, json={"model_key": "tiny"})
+    assert response.status_code == 503
+    assert app.state.transcriber is original
+    assert not app.state.setup_complete
+    assert Config.load_settings() == original_settings
+    assert candidates[0].unloaded
+    assert not app.state.model_busy
+
+
+@pytest.mark.asyncio
+async def test_model_activation_reserves_runtime_and_publishes_only_after_warmup(client, monkeypatch):
+    import asyncio
+    import threading
+    from steno import server
+    entered, release = threading.Event(), threading.Event()
+    previous = app.state.transcriber
+    class Candidate:
+        def __init__(self, model_name):
+            self._model_name = model_name
+        def warmup(self):
+            entered.set()
+            assert release.wait(5)
+        def unload(self):
+            pass
+    monkeypatch.setattr(server, "Transcriber", Candidate)
+    monkeypatch.setattr(Config, "model_is_downloaded", classmethod(lambda cls, repo: True))
+    request = asyncio.create_task(client.post("/api/models/active", json={"model_key": "tiny"}))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert app.state.model_busy
+        assert app.state.transcriber is previous
+        conflict = await client.post("/api/models/active", json={"model_key": "base"})
+        assert conflict.status_code == 409
+        conflict = await client.delete("/api/models/base")
+        assert conflict.status_code == 409
+    finally:
+        release.set()
+    result = await request
+    assert result.status_code == 200
+    assert isinstance(app.state.transcriber, Candidate)
+    assert Config.load_settings()["model_key"] == "tiny"
+    assert not app.state.model_busy
+
+
+@pytest.mark.parametrize("language", ["english", "en-US", "123", {}, ["en"]])
+def test_job_payload_rejects_invalid_language_before_queue(language):
+    from fastapi import HTTPException
+    from steno.server import job_payload
+    with pytest.raises(HTTPException) as exc:
+        job_payload({"language": language})
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.parametrize("backend,device", [("mlx", "cpu"), ("mlx", "cuda"), ("faster-whisper", "metal")])
+def test_device_validation_matches_platform(monkeypatch, backend, device):
+    from fastapi import HTTPException
+    from steno import server
+    monkeypatch.setattr(server, "default_backend", lambda: backend)
+    with pytest.raises(HTTPException) as exc:
+        server.job_payload({"device": device})
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_upload_reserves_session_until_source_is_queued(client, monkeypatch):
+    import asyncio
+    from pathlib import Path
+    from steno import server
+    from steno.jobs import BusyError
+    from steno.session import Session
+    from steno.storage import Store
+    entered, release = asyncio.Event(), asyncio.Event()
+    class Upload:
+        filename = "sample.wav"
+        delivered = False
+        async def read(self, size):
+            if self.delivered:
+                return b""
+            entered.set()
+            await release.wait()
+            self.delivered = True
+            return b"audio source bytes"
+        async def close(self):
+            pass
+    session = Session("upload reservation")
+    jobs = app.state.jobs
+    monkeypatch.setattr(jobs, "kick", lambda: None)
+    uploading = asyncio.create_task(server.transcribe_file(session.session_id, Upload(), None, "auto"))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        assert jobs.busy() and jobs.session_busy(session.session_id)
+        assert (await client.delete(f"/api/sessions/{session.session_id}")).status_code == 409
+        assert (await client.post("/api/reset")).status_code == 409
+        assert (await client.get("/api/mic-test")).status_code == 409
+        with pytest.raises(BusyError):
+            await jobs.start_recording(session, "owner", "tiny")
+        with pytest.raises(BusyError):
+            jobs.submit(session.session_id, "retranscribe", {})
+    finally:
+        release.set()
+    result = await uploading
+    assert Store().get_job(result["job_id"])["status"] == "queued"
+    assert Path(session.takes()[0]["path"]).read_bytes() == b"audio source bytes"
+    assert not jobs._uploads
+
+
+@pytest.mark.asyncio
+async def test_empty_upload_releases_reservation(client):
+    from steno.session import Session
+    session = Session("empty upload")
+    response = await client.post(f"/api/sessions/{session.session_id}/transcribe-file",
+                                 files={"file": ("empty.wav", b"", "audio/wav")})
+    assert response.status_code == 422
+    assert not app.state.jobs.busy()
+    assert session.takes()[0]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_microphone_test_reserves_runtime_against_recording_and_upload(client, monkeypatch):
+    import asyncio
+    import threading
+    import numpy as np
+    from httpx_ws import aconnect_ws
+    from httpx_ws.transport import ASGIWebSocketTransport
+    from steno import server
+    from steno.session import Session
+    entered, release = threading.Event(), threading.Event()
+    def record(*args, **kwargs):
+        entered.set()
+        assert release.wait(5)
+        return np.zeros((8000, 1), dtype=np.float32)
+    monkeypatch.setattr(server, "PORTAUDIO_AVAILABLE", True)
+    monkeypatch.setattr("steno.audio.sd.rec", record)
+    session = Session("microphone test")
+    testing = asyncio.create_task(client.get("/api/mic-test"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert app.state.model_busy
+        assert (await client.post("/api/reset")).status_code == 409
+        response = await client.post(f"/api/sessions/{session.session_id}/transcribe-file",
+                                     files={"file": ("sample.wav", b"source", "audio/wav")})
+        assert response.status_code == 409
+        async with AsyncClient(transport=ASGIWebSocketTransport(app=app), base_url="http://127.0.0.1") as ws_client:
+            async with aconnect_ws(f"/ws/{session.session_id}", ws_client) as ws:
+                await ws.receive_json()
+                await ws.send_json({"type": "start"})
+                assert (await ws.receive_json())["type"] == "error"
+                assert not app.state.jobs.recording
+    finally:
+        release.set()
+    assert (await testing).status_code == 200
+    assert not app.state.model_busy

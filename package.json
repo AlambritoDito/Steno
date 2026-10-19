@@ -1,43 +1,62 @@
 {
   "name": "steno",
-  "version": "0.2.0",
-  "description": "Real-time local transcription for classes & meetings",
+  "version": "1.0.0-beta.1",
+  "description": "Private desktop transcription for classes and meetings",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",
-    "build:python": "bash scripts/build-python.sh",
-    "build:electron": "electron-builder --mac",
-    "build": "npm run build:python && npm run build:electron"
+    "test:electron": "node --test electron/*.test.js",
+    "build:assets": "uv run --frozen --extra build python scripts/build_assets.py",
+    "build:python": "uv run --frozen --extra build python scripts/build_python.py",
+    "build:electron": "node scripts/build_electron.js",
+    "build": "npm run build:assets && npm run build:python && npm run build:electron",
+    "smoke:backend": "uv run --frozen --extra dev python scripts/smoke_backend.py",
+    "test:ui": "node --test tests/session-ui.test.cjs"
   },
-  "author": "",
+  "author": "Steno contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AlambritoDito/Steno.git"
+  },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3"
   },
   "build": {
     "appId": "com.steno.app",
     "productName": "Steno",
+    "directories": {
+      "output": "release",
+      "buildResources": "packaging/resources"
+    },
+    "artifactName": "Steno-${version}-${os}-${arch}.${ext}",
+    "forceCodeSigning": false,
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "build/icon.icns",
+      "icon": "packaging/resources/icon.icns",
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ],
-      "darkModeSupport": false,
-      "hardenedRuntime": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
+      "minimumSystemVersion": "27.0",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "notarize": false,
+      "entitlements": "packaging/entitlements.mac.plist",
+      "entitlementsInherit": "packaging/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Steno needs microphone access for real-time transcription."
+        "NSMicrophoneUsageDescription": "Steno uses your microphone to transcribe audio locally."
       }
     },
     "dmg": {
-      "icon": "build/icon.icns",
-      "background": "build/dmg-background.png",
+      "sign": false,
+      "icon": "packaging/resources/icon.icns",
+      "backgroundColor": "#f5f5f7",
       "iconSize": 100,
       "window": {
         "width": 660,
@@ -57,6 +76,25 @@
         }
       ]
     },
+    "win": {
+      "icon": "packaging/resources/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "include": "packaging/installer.nsh"
+    },
     "extraResources": [
       {
         "from": "dist/steno-server",
@@ -64,7 +102,8 @@
       }
     ],
     "files": [
-      "electron/**/*"
+      "electron/**/*.js",
+      "!electron/**/*.test.js"
     ]
   }
 }
