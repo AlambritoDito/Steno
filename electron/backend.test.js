@@ -2,6 +2,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
+const path = require("node:path");
 const { Backend, backendCommand, checkHealth } = require("./backend");
 
 const fixture = `
@@ -58,5 +59,5 @@ test("health response must be authenticated and identify ready state", async () 
 test("launch chooses native executable and direct venv Python without a shell", () => {
   assert.match(backendCommand(true, "/resources", "/project", "win32")[0], /steno-server\.exe$/);
   assert.match(backendCommand(false, "/resources", "/project", "win32")[0], /Scripts[\\/]python\.exe$/);
-  assert.deepEqual(backendCommand(true, "/resources", "/project", "darwin"), ["/resources/steno-server/steno-server", []]);
+  assert.deepEqual(backendCommand(true, "/resources", "/project", "darwin"), [path.join("/resources", "steno-server", "steno-server"), []]);
 });

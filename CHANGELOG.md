@@ -15,12 +15,15 @@ Desktop beta foundation; stable release gates remain open.
 - SQLite sessions, editable notes, durable jobs, per-take audio and crash recovery; original legacy Markdown documents remain untouched.
 - Portable Markdown and ZIP exports with images/audio, visible job status, cancellation and retry.
 - Native Mac/Windows build workflows, authenticated desktop handshake, single-instance launch and packaged smoke checks.
+- Portable Windows ZIP with adjacent `Steno Data/logs`, an EN/ES support interface and a Spanish guide for nontechnical testers.
+- Bounded diagnostics ZIP with runtime versions, hardware and redacted logs; no automatic upload or session contents.
 
 ### Fixed
 - History/notes loss after restart, duplicated editor saves and unflushed export drafts.
 - Recording tail loss, double audio overlap, overwritten WAVs on resume and cross-client recording ownership.
 - Model-download progress protocol, local snapshot validation and offline decoding with bundled PyAV.
 - Unsafe process termination by port, raw Markdown rendering and unchecked local asset paths.
+- Fresh-directory desktop startup and validation of the files actually published in Windows model repositories.
 
 ### Changed
 - Python 3.12 runtime; platform-specific pinned ML dependencies and updated Electron.
@@ -29,9 +32,9 @@ Desktop beta foundation; stable release gates remain open.
 
 ---
 
-## [0.2.0] — 2026-03-09
+## [0.2.0] — Proposed in PR #22, not published
 
-First stable Mac release targeting non-technical users.
+Mac changes prepared on 2026-03-09. These changes are incorporated into the desktop 1.0 beta; the stable-release checks were not completed for 0.2.0.
 
 ### Added
 - **Auto-update notifications** — checks GitHub Releases on startup and every 4 hours, shows a dismissable banner when a new version is available (#new)
